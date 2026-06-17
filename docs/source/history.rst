@@ -1,6 +1,9 @@
 Release history
 ===============
 
+Version 1.2.1
+    - Remove ``flit_core`` version upper limit in ``pyproject.toml``.
+
 Version 1.2
   - Support Python version 3.14:
 

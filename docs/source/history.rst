@@ -1,6 +1,12 @@
 Release history
 ===============
 
+Version 1.3
+    - Add the ``Contributing to pa-dlna`` section to the documentation. This
+      section documents the **pa-dlna AI** policy and the prerequisites
+      required before creating a MR (merge request).
+    - Create the Default MR template.
+
 Version 1.2.1
     - Remove ``flit_core`` version upper limit in ``pyproject.toml``.
 

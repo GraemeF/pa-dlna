@@ -332,8 +332,8 @@ class HttpQuery(IsolatedAsyncioTestCase):
     async def _loopback_soap(body, start_line=None):
         """Start the http server and send the query."""
 
-        soap_body = 'The soap action'
-        soap_header = f'Content-length: {len(soap_body.encode())}\r\n'
+        soap_body = b'The soap action'
+        soap_header = [('Content-length', str(len(soap_body)))]
         http_server = HTTPServer(body, start_line=start_line)
         asyncio.create_task(http_server.run())
         await http_server.startup

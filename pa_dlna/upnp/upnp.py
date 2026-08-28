@@ -165,8 +165,8 @@ class UPnPService(UPnPElement):
             raise UPnPInvalidSoapError(f'argument mismatch in action'
                                        f" '{action}' of '{self.serviceId}'")
 
-        # Build header and body.
-        body = (
+        # Build the headers and the 'POST' request body.
+        post_body = (
             f'<?xml version="1.0"?>\n'
             f'<s:Envelope'
             f' xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"'
@@ -178,16 +178,17 @@ class UPnPService(UPnPElement):
             f'  </s:Body>\n'
             f'</s:Envelope>'
         )
-        body = ''.join(line.strip() for line in body.splitlines())
+        post_body = ''.join(line.strip() for line in post_body.splitlines())
+        post_body = post_body.encode()
 
-        header = (
-            f'Content-length: {len(body.encode())}\r\n'
-            f'Content-type: text/xml; charset="utf-8"\r\n'
-            f'Soapaction: "{self.serviceType}#{action}"\r\n'
-        )
+        headers = [
+            ('Content-length', str(len(post_body))),
+            ('Content-type', 'text/xml; charset="utf-8"'),
+            ('Soapaction',  f'"{self.serviceType}#{action}"'),
+            ]
 
         # Send the soap action.
-        is_fault, body =  await http_soap(self.controlURL, header, body)
+        is_fault, body =  await http_soap(self.controlURL, headers, post_body)
 
         # The specification of the serviceType format is
         # 'urn:schemas-upnp-org:device:serviceType:ver'.

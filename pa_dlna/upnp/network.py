@@ -50,6 +50,7 @@ class ChunkState:
 
 class UPnPInvalidSsdpError(UPnPError): pass
 class UPnPInvalidHttpError(UPnPError): pass
+class UPnPNoHTTPResponseError(UPnPError): pass
 
 # Networking helper functions.
 def ipaddr_from_nics(nics, skip_loopback=False, as_string=True):
@@ -335,10 +336,24 @@ async def parse_chunked_body(reader, url='', http_chunk_size=HTTP_CHUNK_SIZE):
 
     return body.getvalue()
 
-async def http_query(method, url, header='', body=''):
-    """An HTTP 1.0 GET or POST request."""
+async def http_request(url, headers=None, post_body=None):
+    """An HTTP 1.0 GET or POST request.
 
-    assert method in ('GET', 'POST')
+    headers:    list of tuples [(header name, header value), ...]
+    post_body:  bytes object
+    """
+
+    def headers_to_string(_tuple):
+        return _tuple[0] + ': ' + _tuple[1]
+
+    def get_from_dict(headers, name):
+        names = {name.upper(), name.lower()}
+        res = names.intersection(headers.keys())
+        if len(res):
+            # Should raise an exception if len(res) == 2.
+            return headers[res.pop()]
+
+    method = 'POST' if post_body else 'GET'
     writer = None
     try:
         urlobj = urllib.parse.urlsplit(url)
@@ -347,17 +362,23 @@ async def http_query(method, url, header='', body=''):
         reader, writer = await asyncio.open_connection(host, port)
 
         # Send the request.
-        request = urlobj._replace(scheme='')._replace(netloc='').geturl()
-        query = (
-            f"{method} {request or '/'} HTTP/1.0\r\n"
-            f"Host: {host}:{port}\r\n"
-        )
-        query = query + header + '\r\n'
-        writer.write(query.encode('latin-1'))
-        writer.write(body.encode())
+        target = urlobj._replace(scheme='')._replace(netloc='').geturl()
+        request = f"{method} {target or '/'} HTTP/1.0\r\n"
 
-        # Parse the http header.
-        header = []
+        host_header = ('Host', urlobj.netloc)
+        if headers is None:
+            headers = [host_header]
+        else:
+            headers.append(('Host', urlobj.netloc))
+        request += '\r\n'.join(map(headers_to_string, headers)) + '\r\n\r\n'
+
+        writer.write(request.encode('latin-1'))
+        if post_body:
+            writer.write(post_body)
+        await writer.drain()
+
+        # Parse the http response.
+        response = []
         while True:
             line = await reader.readline()
             if not line:
@@ -365,30 +386,30 @@ async def http_query(method, url, header='', body=''):
 
             line = line.decode('latin1').rstrip()
             if line:
-                header.append(line)
+                response.append(line)
             else:
                 break
 
-        if not header:
-            raise UPnPInvalidHttpError(f'Empty http header from {host}')
+        if not response:
+            raise UPnPNoHTTPResponseError(f'No http response from {host}')
 
-        header_dict = http_header_as_dict(header[1:])
-        transfer_encoding = header_dict.get('TRANSFER-ENCODING')
+        header_dict = http_header_as_dict(response[1:])
+        transfer_encoding = get_from_dict(header_dict, 'TRANSFER-ENCODING')
         if transfer_encoding is not None:
             if transfer_encoding.lower() == 'chunked':
                 body = await parse_chunked_body(reader, url=url)
-                return header, body, host
+                return response, body, host
             else:
                 logger.error(f"HTTP 1.0 does not support '{transfer_encoding}'"
                              f" Transfer-Encoding")
-            return header, b'', host
+            return response, b'', host
 
-        content_length = header_dict.get('CONTENT-LENGTH')
+        content_length = get_from_dict(header_dict, 'CONTENT-LENGTH')
         if content_length is not None:
             content_length = int(content_length)
             if content_length == 0:
                 logger.warning(f'Got content_length = 0 from {url}')
-                return header, b'', host
+                return response, b'', host
 
         body = await reader.read()
 
@@ -400,7 +421,7 @@ async def http_query(method, url, header='', body=''):
                                 f' from {host}')
         if not body:
             logger.warning(f'Got empty body from {url}')
-        return header, body, host
+        return response, body, host
 
     finally:
         if writer is not None:
@@ -413,25 +434,25 @@ async def http_query(method, url, header='', body=''):
 async def http_get(url):
     """An HTTP 1.0 GET request."""
 
-    header, body, host = await http_query('GET', url)
-    line = header[0]
-    if re.match(r'HTTP/1\.(0|1) 200 ', line) is None:
-        raise UPnPInvalidHttpError(f"Header={header}, Body={body}"
+    response, body, host = await http_request(url)
+    start_line = response[0]
+    if re.match(r'HTTP/1\.(0|1) 200 ', start_line) is None:
+        raise UPnPInvalidHttpError(f"Header={response}, Body={body}"
                                    f" from {host}")
     return body
 
-async def http_soap(url, header, body):
+async def http_soap(url, headers, body):
     """HTTP 1.0 POST request used to submit a SOAP action."""
 
-    header, body, host = await http_query('POST', url, header, body)
-    line = header[0]
-    if re.match(r'HTTP/1\.(0|1) 200 ', line) is not None:
+    response, body, host = await http_request(url, headers, body)
+    start_line = response[0]
+    if re.match(r'HTTP/1\.(0|1) 200 ', start_line) is not None:
         is_fault = False
     # HTTP/1.0 500 Internal Server Error.
-    elif re.match(r'HTTP/1\.(0|1) 500 ', line) is not None:
+    elif re.match(r'HTTP/1\.(0|1) 500 ', start_line) is not None:
         is_fault = True
     else:
-        raise UPnPInvalidHttpError(f"Header={header}, Body={body}"
+        raise UPnPInvalidHttpError(f"Header={response}, Body={body}"
                                    f" from {host}")
     return is_fault, body
 

@@ -9,7 +9,7 @@ from .upnp import (UPnPClosedDeviceError, UPnPInvalidSoapError,
                    UPnPSoapFaultError,
                    UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService,
                    QUEUE_CLOSED)
-from .network import ipaddr_from_nics, UPnPNoHTTPResponseError
+from .network import ipaddr_from_nics, UPnPHttpError
 from .util import (NL_INDENT, shorten, AsyncioTasks, log_exception,
                    log_unhandled_exception)
 from .xml import UPnPXMLError, pformat_xml, xml_escape

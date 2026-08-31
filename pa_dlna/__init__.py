@@ -3,6 +3,13 @@
 import sys
 import logging
 
+# Abort early when one of those packages is missing.
+try:
+    import h11
+    import psutil
+except ImportError as e:
+    sys.exit(f'This package is required: {e!r}')
+
 __version__ = '1.2.1'
 MIN_PYTHON_VERSION = (3, 8)
 MIN_LIBPULSE_VERSION = '0.7'

@@ -2,6 +2,7 @@
 
 import asyncio
 import socket
+import h11
 import struct
 import time
 import re
@@ -49,8 +50,9 @@ class ChunkState:
     PARSE_TRAILERS = 4
 
 class UPnPInvalidSsdpError(UPnPError): pass
-class UPnPInvalidHttpError(UPnPError): pass
-class UPnPNoHTTPResponseError(UPnPError): pass
+class UPnPHttpError(UPnPError): pass
+class UPnPInvalidHttpError(UPnPHttpError): pass
+class UPnPNoHTTPResponseError(UPnPHttpError): pass
 
 # Networking helper functions.
 def ipaddr_from_nics(nics, skip_loopback=False, as_string=True):
@@ -224,118 +226,6 @@ def trim_bytes_to_string(source, size=80):
     trailer = '...' if len(text) > size else ''
     return text[:size] + trailer
 
-async def parse_chunked_body(reader, url='', http_chunk_size=HTTP_CHUNK_SIZE):
-    """Parse a chunked encoding body.
-
-    This is mostly code from aiohttp.htt_parser.HttpPayloadParser after fixing
-    issue https://github.com/aio-libs/aiohttp/issues/10355.
-    """
-
-    state = ChunkState.PARSE_CHUNKED_SIZE
-    chunk_size = 0
-    chunk_tail = b''
-    body = io.BytesIO()
-
-    # RFC 2616 https://datatracker.ietf.org/doc/html/rfc2616#section-3.6.1.
-    while True:
-        chunk = await reader.read(http_chunk_size)
-        if chunk == b'':
-            if state not in (ChunkState.PARSE_MAYBE_TRAILERS,
-                             ChunkState.PARSE_TRAILERS):
-                logger.warning(f"Missing last-chunk from '{url}'")
-            if chunk_tail:
-                tail = trim_bytes_to_string(chunk_tail)
-                logger.warning(f'Trailing chunk from {url}: {tail}')
-            break
-
-        if chunk_tail:
-            chunk = chunk_tail + chunk
-            chunk_tail = b''
-
-        while chunk:
-
-            # Read next chunk size.
-            if state == ChunkState.PARSE_CHUNKED_SIZE:
-                pos = chunk.find(SEP)
-                if pos >= 0:
-                    # Strip chunk-extensions.
-                    i = chunk.find(CHUNK_EXT, 0, pos)
-                    size_b = chunk[:i] if i >= 0 else chunk[:pos]
-                    size_b = size_b.strip()
-
-                    if not re.fullmatch(HEXDIGITS, size_b):
-                        size = trim_bytes_to_string(chunk[:pos])
-                        raise UPnPInvalidHttpError(
-                                    f'Not a chunk size: {size!r} from {url}')
-                    size = int(size_b, 16)
-
-                    chunk = chunk[pos+len(SEP):]
-                    if size == 0:
-                        state = ChunkState.PARSE_MAYBE_TRAILERS
-                    else:
-                        state = ChunkState.PARSE_CHUNKED_CHUNK
-                        chunk_size = size
-                else:
-                    chunk_tail = chunk
-                    break
-
-            # Read the chunk.
-            if state == ChunkState.PARSE_CHUNKED_CHUNK:
-                required = chunk_size
-                chunk_size = max(required - len(chunk), 0)
-                body.write(chunk[:required])
-
-                if chunk_size:
-                    break
-                chunk = chunk[required:]
-                state = ChunkState.PARSE_CHUNKED_CHUNK_EOF
-
-            # Toss the CRLF at the end of the chunk.
-            if state == ChunkState.PARSE_CHUNKED_CHUNK_EOF:
-                if chunk[:len(SEP)] == SEP:
-                    state = ChunkState.PARSE_CHUNKED_SIZE
-                    chunk = chunk[len(SEP):]
-                else:
-                    length = len(chunk)
-                    if length and chunk[0] != SEP[0] or length > 1:
-                        chunk = trim_bytes_to_string(chunk)
-                        raise UPnPInvalidHttpError(
-                            f'Missing CRLF at chunk end: {chunk!r} from {url}')
-                    # Get the CRLF or the missing LF in the next chunk.
-                    chunk_tail = chunk
-                    break
-
-            # If stream does not contain trailer, after 0\r\n
-            # we should get another \r\n otherwise
-            # trailers needs to be skipped until \r\n\r\n.
-            if state == ChunkState.PARSE_MAYBE_TRAILERS:
-                head = chunk[:len(SEP)]
-                if head == SEP:
-                    # End of stream.
-                    break
-                # Both CR and LF, or only LF may not be received yet. It is
-                # expected that CRLF or LF will be shown at the very first
-                # byte next time, otherwise trailers should come. The last
-                # CRLF which marks the end of response might not be
-                # contained in the same TCP segment which delivered the
-                # size indicator.
-                if not head or head == SEP[0]:
-                    chunk_tail = head
-                    break
-                state = ChunkState.PARSE_TRAILERS
-
-            # Read and discard trailer up to the CRLF terminator
-            if state == ChunkState.PARSE_TRAILERS:
-                pos = chunk.find(SEP)
-                if pos >= 0:
-                    chunk = chunk[pos+len(SEP):]
-                    state = ChunkState.PARSE_MAYBE_TRAILERS
-                else:
-                    chunk_tail = chunk
-                    break
-
-    return body.getvalue()
-
 async def http_request(url, headers=None, post_body=None):
     """An HTTP 1.0 GET or POST request.
 
@@ -343,118 +233,46 @@ async def http_request(url, headers=None, post_body=None):
     post_body:  bytes object
     """
 
-    def headers_to_string(_tuple):
-        return _tuple[0] + ': ' + _tuple[1]
-
-    def get_from_dict(headers, name):
-        names = {name.upper(), name.lower()}
-        res = names.intersection(headers.keys())
-        if len(res):
-            # Should raise an exception if len(res) == 2.
-            return headers[res.pop()]
-
-    method = 'POST' if post_body else 'GET'
-    writer = None
     try:
-        urlobj = urllib.parse.urlsplit(url)
-        host = urlobj.hostname
-        port = urlobj.port if urlobj.port is not None else 80
-        reader, writer = await asyncio.open_connection(host, port)
+        async with HttpClient(url) as client:
+            # Send the request.
+            method = 'POST' if post_body else 'GET'
+            await client.send_request(method, headers, post_body)
 
-        # Send the request.
-        target = urlobj._replace(scheme='')._replace(netloc='').geturl()
-        request = f"{method} {target or '/'} HTTP/1.0\r\n"
+            # Parse the http response.
+            return await client.receive_response()
 
-        host_header = ('Host', urlobj.netloc)
-        if headers is None:
-            headers = [host_header]
-        else:
-            headers.append(('Host', urlobj.netloc))
-        request += '\r\n'.join(map(headers_to_string, headers)) + '\r\n\r\n'
-
-        writer.write(request.encode('latin-1'))
-        if post_body:
-            writer.write(post_body)
-        await writer.drain()
-
-        # Parse the http response.
-        response = []
-        while True:
-            line = await reader.readline()
-            if not line:
-                break
-
-            line = line.decode('latin1').rstrip()
-            if line:
-                response.append(line)
-            else:
-                break
-
-        if not response:
-            raise UPnPNoHTTPResponseError(f'No http response from {host}')
-
-        header_dict = http_header_as_dict(response[1:])
-        transfer_encoding = get_from_dict(header_dict, 'TRANSFER-ENCODING')
-        if transfer_encoding is not None:
-            if transfer_encoding.lower() == 'chunked':
-                body = await parse_chunked_body(reader, url=url)
-                return response, body, host
-            else:
-                logger.error(f"HTTP 1.0 does not support '{transfer_encoding}'"
-                             f" Transfer-Encoding")
-            return response, b'', host
-
-        content_length = get_from_dict(header_dict, 'CONTENT-LENGTH')
-        if content_length is not None:
-            content_length = int(content_length)
-            if content_length == 0:
-                logger.warning(f'Got content_length = 0 from {url}')
-                return response, b'', host
-
-        body = await reader.read()
-
-        # Check that we have received the whole body.
-        if content_length is not None:
-            if len(body) != content_length:
-                raise UPnPInvalidHttpError(f'Content-Length and actual length'
-                                f' mismatch ({content_length} != {len(body)})'
-                                f' from {host}')
-        if not body:
-            logger.warning(f'Got empty body from {url}')
-        return response, body, host
-
-    finally:
-        if writer is not None:
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except ConnectionError:
-                pass
+    except asyncio.CancelledError:
+        logger.warning(f'http_request() got asyncio.CancelledError')
+        raise
 
 async def http_get(url):
     """An HTTP 1.0 GET request."""
 
     response, body, host = await http_request(url)
-    start_line = response[0]
-    if re.match(r'HTTP/1\.(0|1) 200 ', start_line) is None:
-        raise UPnPInvalidHttpError(f"Header={response}, Body={body}"
+
+    if (response.status_code != 200 or
+            response.http_version not in (b'1.0', b'1.1')):
+        raise UPnPInvalidHttpError(f"Response={response}, Body={body}"
                                    f" from {host}")
-    return body
+    return response, body
 
 async def http_soap(url, headers, body):
     """HTTP 1.0 POST request used to submit a SOAP action."""
 
     response, body, host = await http_request(url, headers, body)
-    start_line = response[0]
-    if re.match(r'HTTP/1\.(0|1) 200 ', start_line) is not None:
-        is_fault = False
-    # HTTP/1.0 500 Internal Server Error.
-    elif re.match(r'HTTP/1\.(0|1) 500 ', start_line) is not None:
+
+    if response.http_version in (b'1.0', b'1.1'):
         is_fault = True
-    else:
-        raise UPnPInvalidHttpError(f"Header={response}, Body={body}"
-                                   f" from {host}")
-    return is_fault, body
+        if response.status_code == 200:
+            return not is_fault, body
+
+        # HTTP/1.0 500 Internal Server Error.
+        elif response.status_code == 500:
+            return is_fault, body
+
+    raise UPnPInvalidHttpError(f"Response={response}, Body={body}"
+                               f" from {host}")
 
 # Classes.
 class Notify:
@@ -543,6 +361,90 @@ class Notify:
             logger.info('End of the SSDP notify task')
 
 # Network protocols.
+class HttpClient:
+    def __init__(self, url):
+        urlobj = urllib.parse.urlsplit(url)
+        self.host = urlobj.hostname
+        self.port = urlobj.port if urlobj.port is not None else 80
+        self.netloc = urlobj.netloc
+        self.target = urlobj._replace(scheme='')._replace(netloc='').geturl()
+        self.conn = h11.Connection(our_role=h11.CLIENT)
+
+    async def send_request(self, method, headers=None, body=None):
+        if headers is None:
+            headers = []
+        headers.extend([('Host', self.netloc), ('Connection', 'close')])
+
+        request = h11.Request(method=method, target=self.target,
+                                                        headers=headers)
+        data = self.conn.send(request)
+        self.writer.write(data)
+
+        if body:
+            data = self.conn.send(h11.Data(data=body))
+            self.writer.write(data)
+
+        data = self.conn.send(h11.EndOfMessage())
+        if self.conn.our_state != h11.MUST_CLOSE:
+            logger.error(f'HttpClient.send() our_state'
+                           f' ({self.conn.our_state}) != MUST_CLOSE')
+
+        self.writer.write(data)
+        await self.writer.drain()
+
+    async def receive_response(self):
+        response = None
+        body = bytearray()
+        while True:
+            event = self.conn.next_event()
+
+            if event is h11.NEED_DATA:
+                data = await self.reader.read(512)
+                self.conn.receive_data(data)
+
+            elif isinstance(event, h11.Response):
+                response = event
+
+            elif isinstance(event, h11.Data):
+                body.extend(event.data)
+
+            elif isinstance(event, h11.EndOfMessage):
+                # Tell the h11 state machine that SERVER is closed.
+                self.conn.receive_data(b'')
+                continue
+
+            elif isinstance(event, h11.ConnectionClosed):
+                # Tell the h11 state machine that CLIENT is closed.
+                # SERVER is closed in the EndOfMessage event that
+                # triggers the ConnectionClosed event.
+                self.conn.send(h11.ConnectionClosed())
+                if self.conn.states != {h11.CLIENT: h11.CLOSED,
+                                        h11.SERVER: h11.CLOSED}:
+                    logger.error(f'HttpClient.receive()'
+                                   f'CLIENT and SERVER are not both CLOSED')
+                break
+
+            else:
+                logger.error(f'HttpClient.receive()'
+                             f' unknown h11 event: {event}')
+
+        return response, body, self.host
+
+    async def __aenter__(self):
+        self.reader, self.writer = await asyncio.open_connection(
+                                                    self.host, self.port)
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        try:
+            self.writer.close()
+            await self.writer.wait_closed()
+        except ConnectionError:
+            pass
+
+        if isinstance(exc_value, h11.ProtocolError):
+            raise UPnPInvalidHttpError(f'h11.{exc_value!r}') from None
+
 class MsearchServerProtocol:
     """The MSEARCH asyncio server."""
 

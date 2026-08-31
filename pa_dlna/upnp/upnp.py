@@ -209,7 +209,7 @@ class UPnPService(UPnPElement):
         return response
 
     async def _run(self):
-        description = await http_get(self.SCPDURL)
+        unused, description = await http_get(self.SCPDURL)
         self.description = description.decode()
 
         # Parse the actionList.
@@ -463,7 +463,7 @@ class UPnPRootDevice(UPnPDevice):
     async def _run(self):
         self._curtask = asyncio.current_task()
         try:
-            description = await http_get(self.location)
+            unused, description = await http_get(self.location)
             description = description.decode()
             if not description:
                 raise UPnPError(f"The 'description' of {self} is empty")

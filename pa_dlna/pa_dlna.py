@@ -18,7 +18,7 @@ from .encoders import select_encoder
 from .upnp import (UPnPControlPoint, UPnPDevice, UPnPClosedDeviceError,
                    UPnPSoapFaultError, NL_INDENT, shorten,
                    log_unhandled_exception, AsyncioTasks, QUEUE_CLOSED,
-                   xml_escape, UPnPNoHTTPResponseError)
+                   xml_escape, UPnPHttpError)
 
 logger = logging.getLogger('pa-dlna')
 
@@ -493,7 +493,7 @@ class Renderer:
         log_action(self.name, 'Stop', state)
         try:
             await self.stop()
-        except (UPnPSoapFaultError, UPnPNoHTTPResponseError):
+        except (UPnPSoapFaultError, UPnPHttpError):
             pass
 
     def set_current_uri(self):

@@ -19,7 +19,7 @@ from . import (find_in_logs, search_in_logs, loopback_datagrams, URL,
                SSDP_ALIVE)
 from .. import TEST_LOGLEVEL
 from ..network import (send_mcast, msearch, http_get, UPnPInvalidHttpError,
-                       http_soap, Notify, parse_chunked_body)
+                       http_soap, Notify)
 from ..util import HTTPRequestHandler
 
 ST_ROOT_DEVICE = 'ST: upnp:rootdevice'
@@ -342,160 +342,81 @@ class HttpQuery(IsolatedAsyncioTestCase):
 
     async def test_http_get(self):
         body = 'Some content.'
-        received_body = await self._loopback_get(body)
+        unused, received_body = await self._loopback_get(body)
+
+        self.assertEqual(body, received_body.decode())
+
+    async def test_http_1_0_response(self):
+        body = 'Some content.'
+        start_line = 'HTTP/1.0 200 OK'
+        unused, received_body = await self._loopback_get(body,
+                                                        start_line=start_line)
 
         self.assertEqual(body, received_body.decode())
 
     async def test_zero_length(self):
         body = 'Some content.'
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            received_body = await self._loopback_get(body, content_length=0)
+        with self.assertLogs(level=logging.DEBUG) as m_logs, \
+                self.assertRaises(UPnPInvalidHttpError) as cm:
+            response, body = await self._loopback_get(body, content_length=0)
 
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
-                                       re.compile('Got content_length = 0')))
-        self.assertEqual(received_body, b'')
+        self.assertIn("h11.RemoteProtocolError", cm.exception.args[0])
 
     async def test_empty_body(self):
         body = ''
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            received_body = await self._loopback_get(body)
+            response, body = await self._loopback_get(body)
 
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
-                                       re.compile('Got empty body')))
-        self.assertEqual(received_body, b'')
-
-    async def test_length_mismatch(self):
-        body = 'Some content.'
-        with self.assertRaises(UPnPInvalidHttpError) as cm:
-            received_body = await self._loopback_get(body, content_length=1)
-
-        self.assertIn(f'mismatch (1 != {len(body)})', cm.exception.args[0])
+        self.assertEqual(body, b'')
 
     async def test_bad_http_version(self):
         body = 'Some content.'
         start_line = 'HTTP/2.0 200 OK'
         with self.assertRaises(UPnPInvalidHttpError) as cm:
-            received_body = await self._loopback_get(body,
+            response, body = await self._loopback_get(body,
                                                      start_line=start_line)
 
-        self.assertIn(start_line, cm.exception.args[0])
+        self.assertIn("http_version=b'2.0'", cm.exception.args[0])
 
     async def test_transfer_encoding(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
+        with self.assertLogs(level=logging.DEBUG) as m_logs, \
+                self.assertRaises(UPnPInvalidHttpError) as cm:
             body = 'Some content.'
-            received_body = await self._loopback_get(body,
+            response, body = await self._loopback_get(body,
                                                 transfer_encoding='deflate')
 
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
-                            re.compile(r"not support.*Transfer-Encoding")))
+        self.assertIn("h11.RemoteProtocolError", cm.exception.args[0])
 
     async def test_http_soap(self):
         body = 'soap response'
-        is_fault, received_body = await self._loopback_soap(body)
+        is_fault, response_body = await self._loopback_soap(body)
 
-        self.assertEqual(body, received_body.decode())
+        self.assertEqual(body, response_body.decode())
         self.assertFalse(is_fault)
 
     async def test_soap_fault(self):
         body = 'soap response'
-        is_fault, received_body = await self._loopback_soap(body,
+        is_fault, response_body = await self._loopback_soap(body,
                             start_line='HTTP/1.0 500 Internal Server Error')
 
-        self.assertEqual(body, received_body.decode())
+        self.assertEqual(body, response_body.decode())
         self.assertTrue(is_fault)
 
     async def test_bad_soap(self):
         body = 'soap response'
         start_line = 'HTTP/2.0 200 OK'
         with self.assertRaises(UPnPInvalidHttpError) as cm:
-            is_fault, received_body = await self._loopback_soap(body,
+            is_fault, body = await self._loopback_soap(body,
                                                     start_line=start_line)
 
-        self.assertIn(start_line, cm.exception.args[0])
+        self.assertIn("http_version=b'2.0'", cm.exception.args[0])
 
     async def test_chunked_body(self):
         body = '4\r\nabcd\r\n0\r\n\r\n'
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            received_body = await self._loopback_get(body,
+            response, body = await self._loopback_get(body,
                                                 transfer_encoding='chunked')
-        self.assertEqual(received_body, b'abcd')
-
-class HttpChunkedParser(IsolatedAsyncioTestCase):
-
-    class Reader:
-        def __init__(self, buffer, lines, trimed):
-            # Measure the length of the first 'lines' CRLF lines and
-            # trim the last 'trimed' bytes.
-            first_split = b''.join(buffer.splitlines(keepends=True)[:lines])
-            self.split = len(first_split) - trimed
-            self.buffer = buffer
-
-        async def read(self, unused):
-            # Read blocks of 'self.split' size.
-            part = self.buffer[:self.split]
-            self.buffer = self.buffer[self.split:]
-            return part
-
-    async def test_chunked_split(self):
-        body = b'4\r\nwxyz\r\n0\r\n\r\n'
-        for lines, trimed in ((2, 0), (2, 1), (2, 2),
-                              (3, 0), (3, 1), (3, 2),
-                              (4, 1), (4, 2),
-                              ):
-            with self.subTest(lines=lines, trimed=trimed):
-                reader = self.Reader(body, lines, trimed)
-                received_body = await parse_chunked_body(reader)
-                self.assertEqual(received_body, b'wxyz')
-
-    async def test_chunked_bad_split(self):
-        body = b'4\r\nwxyzX\n0\r\n\r\n'
-        for lines, trimed in ((2, 2), (2, 1)):
-            with self.subTest(lines=lines, trimed=trimed):
-                with self.assertRaises(UPnPInvalidHttpError) as cm:
-                    reader = self.Reader(body, lines, trimed)
-                    received_body = await parse_chunked_body(reader)
-                self.assertIn('Missing CRLF', cm.exception.args[0])
-
-    async def test_chunked_split_trailers(self):
-        body = (b'4\r\nwxyz\r\n0\r\n'
-               b'Content-MD5: 912ec803b2ce49e4a541068d495ab570\r\n\r\n')
-        for lines, trimed in ((4, 0), (5, 1), (4, 34), (4, 46)):
-            with self.subTest(lines=lines, trimed=trimed):
-                reader = self.Reader(body, lines, trimed)
-                received_body = await parse_chunked_body(reader)
-                self.assertEqual(received_body, b'wxyz')
-
-    async def test_chunked_missing_CRLF(self):
-        body = b'4\r\nwxyz\rX0\r\n\r\n'
-        with self.assertRaises(UPnPInvalidHttpError) as cm:
-            reader = self.Reader(body, 3, 0)
-            received_body = await parse_chunked_body(reader)
-        self.assertIn('Missing CRLF', cm.exception.args[0])
-
-    async def test_chunked_bad_size(self):
-        body = b'blah\r\n0\r\n\r\n'
-        with self.assertRaises(UPnPInvalidHttpError) as cm:
-            reader = self.Reader(body, 3, 0)
-            received_body = await parse_chunked_body(reader)
-        self.assertIn('Not a chunk size', cm.exception.args[0])
-
-    async def test_chunked_last_chunk(self):
-        body = b'4\r\nwxyz\r\n'
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            reader = self.Reader(body, 3, 0)
-            received_body = await parse_chunked_body(reader, url='foo')
-
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
-                                       re.compile('Missing last-chunk.*foo')))
-
-    async def test_chunked_trailing(self):
-        body = b'4\r\nwxyz\r\n0\r\nWXYZ'
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            reader = self.Reader(body, 4, 0)
-            received_body = await parse_chunked_body(reader, url='foo')
-
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
-                                       re.compile('Trailing chunk.*WXYZ')))
+        self.assertEqual(body, b'abcd')
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

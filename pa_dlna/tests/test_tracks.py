@@ -288,14 +288,13 @@ class UpmpdcliMpd:
                 if rndrer.name.startswith('UpMpd-'):
                     renderer = rndrer
                     break
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.1)
 
         while renderer.encoder is None:
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.1)
 
         # Make sure the control_point is idle.
-        for i in range(10):
-            await asyncio.sleep(0)
+        await asyncio.sleep(1)
 
         logger.debug(f'Found renderer {renderer.name}')
         return renderer

@@ -13,7 +13,7 @@ default:
     before_script:
         - apt-get update -yq && apt-get install -yq curl ffmpeg
         - python --version
-        - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install psutil libpulse
+        - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install psutil libpulse h11
 
 .pulseaudio: &pulseaudio
     - apt-get update -yq && apt-get install -yq pulseaudio

@@ -251,18 +251,17 @@ async def http_get(url):
 
     response, body, host = await http_request(url)
 
-    if (response.status_code != 200 or
-            response.http_version not in (b'1.0', b'1.1')):
+    if response.status_code != 200 or response.http_version > b'1.1':
         raise UPnPInvalidHttpError(f"Response={response}, Body={body}"
                                    f" from {host}")
-    return response, body
+    return body
 
 async def http_soap(url, headers, body):
     """HTTP 1.0 POST request used to submit a SOAP action."""
 
     response, body, host = await http_request(url, headers, body)
 
-    if response.http_version in (b'1.0', b'1.1'):
+    if response.http_version <= b'1.1':
         is_fault = True
         if response.status_code == 200:
             return not is_fault, body
@@ -386,7 +385,7 @@ class HttpClient:
 
         data = self.conn.send(h11.EndOfMessage())
         if self.conn.our_state != h11.MUST_CLOSE:
-            logger.error(f'HttpClient.send() our_state'
+            logger.error(f'HttpClient.send_request() our_state'
                            f' ({self.conn.our_state}) != MUST_CLOSE')
 
         self.writer.write(data)
@@ -420,12 +419,12 @@ class HttpClient:
                 self.conn.send(h11.ConnectionClosed())
                 if self.conn.states != {h11.CLIENT: h11.CLOSED,
                                         h11.SERVER: h11.CLOSED}:
-                    logger.error(f'HttpClient.receive()'
+                    logger.error(f'HttpClient.receive_response()'
                                    f'CLIENT and SERVER are not both CLOSED')
                 break
 
             else:
-                logger.error(f'HttpClient.receive()'
+                logger.error(f'HttpClient.receive_response()'
                              f' unknown h11 event: {event}')
 
         return response, body, self.host

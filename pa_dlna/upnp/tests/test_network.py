@@ -342,15 +342,14 @@ class HttpQuery(IsolatedAsyncioTestCase):
 
     async def test_http_get(self):
         body = 'Some content.'
-        unused, received_body = await self._loopback_get(body)
+        received_body = await self._loopback_get(body)
 
         self.assertEqual(body, received_body.decode())
 
     async def test_http_1_0_response(self):
         body = 'Some content.'
         start_line = 'HTTP/1.0 200 OK'
-        unused, received_body = await self._loopback_get(body,
-                                                        start_line=start_line)
+        received_body = await self._loopback_get(body, start_line=start_line)
 
         self.assertEqual(body, received_body.decode())
 
@@ -358,14 +357,14 @@ class HttpQuery(IsolatedAsyncioTestCase):
         body = 'Some content.'
         with self.assertLogs(level=logging.DEBUG) as m_logs, \
                 self.assertRaises(UPnPInvalidHttpError) as cm:
-            response, body = await self._loopback_get(body, content_length=0)
+            await self._loopback_get(body, content_length=0)
 
         self.assertIn("h11.RemoteProtocolError", cm.exception.args[0])
 
     async def test_empty_body(self):
         body = ''
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            response, body = await self._loopback_get(body)
+            body = await self._loopback_get(body)
 
         self.assertEqual(body, b'')
 
@@ -373,8 +372,7 @@ class HttpQuery(IsolatedAsyncioTestCase):
         body = 'Some content.'
         start_line = 'HTTP/2.0 200 OK'
         with self.assertRaises(UPnPInvalidHttpError) as cm:
-            response, body = await self._loopback_get(body,
-                                                     start_line=start_line)
+            await self._loopback_get(body, start_line=start_line)
 
         self.assertIn("http_version=b'2.0'", cm.exception.args[0])
 
@@ -382,8 +380,7 @@ class HttpQuery(IsolatedAsyncioTestCase):
         with self.assertLogs(level=logging.DEBUG) as m_logs, \
                 self.assertRaises(UPnPInvalidHttpError) as cm:
             body = 'Some content.'
-            response, body = await self._loopback_get(body,
-                                                transfer_encoding='deflate')
+            await self._loopback_get(body, transfer_encoding='deflate')
 
         self.assertIn("h11.RemoteProtocolError", cm.exception.args[0])
 
@@ -414,8 +411,7 @@ class HttpQuery(IsolatedAsyncioTestCase):
     async def test_chunked_body(self):
         body = '4\r\nabcd\r\n0\r\n\r\n'
         with self.assertLogs(level=logging.DEBUG) as m_logs:
-            response, body = await self._loopback_get(body,
-                                                transfer_encoding='chunked')
+            body = await self._loopback_get(body, transfer_encoding='chunked')
         self.assertEqual(body, b'abcd')
 
 if __name__ == '__main__':

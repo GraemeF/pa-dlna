@@ -10,8 +10,8 @@ try:
 except ImportError as e:
     sys.exit(f'This package is required: {e!r}')
 
-__version__ = '1.2.1'
-MIN_PYTHON_VERSION = (3, 8)
+__version__ = '2.0'
+MIN_PYTHON_VERSION = (3, 11)
 MIN_LIBPULSE_VERSION = '0.7'
 
 # Systemd log level set between WARNING and ERROR.

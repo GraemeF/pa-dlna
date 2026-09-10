@@ -1,6 +1,5 @@
 """XML utilities."""
 
-import sys
 import io
 import functools
 import logging
@@ -8,13 +7,6 @@ import collections
 import xml.etree.ElementTree as ET
 
 from . import UPnPError
-
-if sys.version_info >= (3, 9):
-    functools_cache = functools.cache
-    ET_indent = ET.indent
-else:
-    functools_cache = functools.lru_cache
-    ET_indent = (lambda x: None)
 
 logger = logging.getLogger('xml')
 
@@ -26,7 +18,7 @@ CTRL_NAMESPACE_BEG = "urn:schemas-upnp-org:control"
 class UPnPXMLError(UPnPError): pass
 
 # XML helper functions.
-@functools_cache
+@functools.cache
 def namespace_as_dict(xml):
     return dict(reversed(elem) for (event, elem) in ET.iterparse(
             io.StringIO(xml), events=['start-ns']))
@@ -194,7 +186,7 @@ def pformat_xml(xml):
     root, namespace = upnp_org_etree(xml)
     ET.register_namespace('', str(namespace))
     tree = ET.ElementTree(root)
-    ET_indent(tree)
+    ET.indent(tree)
 
     with io.StringIO() as out:
         tree.write(out, encoding='unicode')

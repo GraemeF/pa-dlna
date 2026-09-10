@@ -1,5 +1,4 @@
 import os
-import sys
 import contextlib
 import logging
 import subprocess
@@ -14,15 +13,10 @@ from ..upnp.tests import load_ordered_tests, find_in_logs, search_in_logs
 def setUpModule():
     require_libpulse_version(MIN_LIBPULSE_VERSION)
 
-if sys.version_info >= (3, 9):
-    functools_cache = functools.cache
-else:
-    functools_cache = functools.lru_cache
-
 def _id(obj):
     return obj
 
-@functools_cache
+@functools.cache
 def requires_resources(resources):
     """Skip the test when one of the resource is not available.
 

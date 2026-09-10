@@ -5,7 +5,7 @@ build-backend = "flit_core.buildapi"
 [project]
 name = "pa-dlna"
 readme = "README.rst"
-requires-python = ">=3.8,<4"
+requires-python = ">=3.11,<4"
 license = {file = "LICENSE"}
 authors = [{name = "Xavier de Gaye", email = "xdegaye@gmail.com"}]
 keywords = ["pulseaudio", "pipewire", "DLNA", "UPnP", "asyncio"]

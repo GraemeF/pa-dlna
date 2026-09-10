@@ -47,27 +47,6 @@ pipwire-tests:
         - pactl info
         - *unittest-scripts
 
-py38:
-    image: python:3.8
-    stage: test
-    script:
-        - *pulseaudio
-        - *unittest-scripts
-
-py39:
-    image: python:3.9
-    stage: test
-    script:
-        - *pulseaudio
-        - *unittest-scripts
-
-py310:
-    image: python:3.10
-    stage: test
-    script:
-        - *pulseaudio
-        - *unittest-scripts
-
 py311:
     image: python:3.11
     stage: test

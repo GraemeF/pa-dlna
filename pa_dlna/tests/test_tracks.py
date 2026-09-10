@@ -242,10 +242,7 @@ class UpmpdcliMpd:
             await self.exit_stack.aclose()
         finally:
             if self.curtask != asyncio.current_task():
-                if sys.version_info[:2] >= (3, 9):
-                    self.curtask.cancel(msg)
-                else:
-                    self.curtask.cancel()
+                self.curtask.cancel(msg)
 
             loop = asyncio.get_running_loop()
             for sig in (SIGINT, SIGTERM):

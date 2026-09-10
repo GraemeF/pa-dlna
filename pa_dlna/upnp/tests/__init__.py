@@ -33,10 +33,6 @@ SSDP_PARAMS = { 'url': URL,
                }
 SSDP_ALIVE = SSDP_NOTIFY.format(nts='NTS: ssdp:alive', **SSDP_PARAMS)
 
-def min_python_version(sys_version):
-    return unittest.skipIf(sys.version_info < sys_version,
-                        f'Python version {sys_version} or higher required')
-
 def bind_mcast_address():
     """Decorator raising SkipTest if MCAST_ADDR is already in use."""
 

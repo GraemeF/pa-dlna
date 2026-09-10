@@ -21,7 +21,6 @@ from ..init import ControlPointAbortError
 from ..encoders import Encoder
 from ..upnp.upnp import (UPnPRootDevice, QUEUE_CLOSED, UPnPControlPoint,
                          UPnPSoapFaultError)
-from ..upnp.tests import min_python_version
 from ..upnp.xml import SoapFault
 
 # Use the patched pulseaudio and pa_dlna modules to avoid importing libpulse
@@ -171,7 +170,6 @@ class DLNAControlPoint(PaDlnaTestCase):
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                         re.compile("'parec' program cannot be found")))
 
-    @min_python_version((3, 9))
     async def test_cancelled(self):
         async def handle_pulse_event(renderer):
             renderer.control_point.curtask.cancel('foo')
@@ -183,7 +181,6 @@ class DLNAControlPoint(PaDlnaTestCase):
         self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
 
-    @min_python_version((3, 9))
     async def test_exception_renderer_close(self):
         async def handle_pulse_event(renderer):
             renderer.control_point.curtask.cancel('foo')
@@ -216,7 +213,6 @@ class DLNAControlPoint(PaDlnaTestCase):
         self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
                 re.compile('Two DLNA devices registered with the same name')))
 
-    @min_python_version((3, 9))
     async def test_SIGINT(self):
         async def handle_pulse_event(renderer):
             signal.raise_signal(signal.SIGINT)

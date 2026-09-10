@@ -26,7 +26,7 @@ versions and to select the corresponding pdf document.
 Requirements
 ------------
 
-Python version 3.8 or more recent.
+Python version 3.11 or more recent.
 
 psutil
 """"""

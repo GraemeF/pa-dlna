@@ -1,6 +1,5 @@
 "An UPnP control point forwarding PulseAudio/Pipewire streams to DLNA devices."
 
-import sys
 import shutil
 import asyncio
 import logging
@@ -694,10 +693,7 @@ class AVControlPoint(UPnPApplication):
                 await self.pulse.close()
 
             if self.curtask != asyncio.current_task():
-                if sys.version_info[:2] >= (3, 9):
-                    self.curtask.cancel(msg)
-                else:
-                    self.curtask.cancel()
+                self.curtask.cancel(msg)
 
     def abort(self, msg):
         """Abort the whole program from a non-main task."""

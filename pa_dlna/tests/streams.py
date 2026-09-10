@@ -106,7 +106,7 @@ async def play_track(mime_type, transactions, wait_for_completion=True,
         if completed is not None:
             try:
                 await asyncio.wait_for(completed, timeout=1)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 print(f'***** server.stage: {server.stage}', file=sys.stderr)
                 print(f'***** http_server.stage: {http_server.stage}',
                       file=sys.stderr)

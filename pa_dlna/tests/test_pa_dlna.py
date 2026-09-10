@@ -48,7 +48,7 @@ async def wait_for(awaitable, timeout=2):
         start = time.monotonic()
     res = await asyncio.wait_for(awaitable, timeout=timeout)
     if bug and time.monotonic() - start >= timeout - 0.1:
-        raise asyncio.TimeoutError('*** asyncio.wait_for() BUG:'
+        raise TimeoutError('*** asyncio.wait_for() BUG:'
                                 ' failed to raise TimeoutError')
     return res
 
@@ -137,7 +137,7 @@ class PaDlnaTestCase(IsolatedAsyncioTestCase):
             try:
                 return_code = await wait_for(
                                         control_point.run_control_point())
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logs = ('\n'.join(l for l in m_logs.output if
                                   ':asyncio:' not in l))
                 logs = None if not logs else '\n' + logs
@@ -316,7 +316,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
             if alive_count != 0:
                 try:
                     await wait_for(self.control_point.test_end)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logs = ('\n'.join(l for l in m_logs.output if
                                       ':asyncio:' not in l))
                     logs = None if not logs else '\n' + logs

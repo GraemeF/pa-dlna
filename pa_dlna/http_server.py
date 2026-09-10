@@ -22,7 +22,7 @@ async def kill_process(process):
             # First try with SIGTERM.
             process.terminate()
             await asyncio.wait_for(process.wait(), timeout=1.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         finally:
             # Kill the process if the process is still alive.

@@ -211,7 +211,7 @@ class SSDP_notify(IsolatedAsyncioTestCase):
                 await asyncio.wait_for(task, 1)
             except asyncio.CancelledError:
                 pass
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self.fail('Notify task did not terminate as expected')
 
         self.assertTrue(search_in_logs(m_logs.output, 'network',
@@ -265,7 +265,7 @@ class SSDP_msearch(IsolatedAsyncioTestCase):
 
                 try:
                     return await asyncio.wait_for(_get_result(protocol), 1)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     raise AssertionError ('The sent datagram has not been'
                                           ' received')
         return send_datagram

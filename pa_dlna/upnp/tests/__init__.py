@@ -131,7 +131,7 @@ async def loopback_datagrams(datagrams, patch_method=None, setup=None):
         if patch_method is not None:
             try:
                 await asyncio.wait_for(is_called(method), 1)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 raise AssertionError(
                     f'{patch_method}() not called') from None
 

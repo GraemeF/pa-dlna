@@ -233,18 +233,13 @@ async def http_request(url, headers=None, post_body=None):
     post_body:  bytes object
     """
 
-    try:
-        async with HttpClient(url) as client:
-            # Send the request.
-            method = 'POST' if post_body else 'GET'
-            await client.send_request(method, headers, post_body)
+    async with HttpClient(url) as client:
+        # Send the request.
+        method = 'POST' if post_body else 'GET'
+        await client.send_request(method, headers, post_body)
 
-            # Parse the http response.
-            return await client.receive_response()
-
-    except asyncio.CancelledError:
-        logger.warning(f'http_request() got asyncio.CancelledError')
-        raise
+        # Parse the http response.
+        return await client.receive_response()
 
 async def http_get(url):
     """An HTTP 1.0 GET request."""

@@ -70,8 +70,6 @@ class HTTPServer:
             # Write the response.
             writer.write(self.header)
             writer.write(self.body)
-        except asyncio.CancelledError:
-            pass
         finally:
             await writer.drain()
             try:

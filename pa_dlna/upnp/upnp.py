@@ -809,8 +809,6 @@ class UPnPControlPoint:
                 await self.msearch_once(coro, self.msearch_port,
                                         do_msearch=do_msearch)
                 await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            pass
         finally:
             self.close()
 
@@ -820,8 +818,6 @@ class UPnPControlPoint:
 
         try:
             await self._notify.run()
-        except asyncio.CancelledError:
-            pass
         finally:
             self.close()
 

@@ -4,7 +4,7 @@ Release history
 Version 2.0
     - pa-dlna supports Python version 3.11 or more recent. Python versions 3.8,
       3.9 and 3.10 are not supported anymore (Python 3.10 is scheduled to reach
-      ``End of life`` in october 2026).
+      ``End of life`` 10-2026).
     - Add the ``Contributing to pa-dlna`` section to the documentation. This
       section documents the **pa-dlna AI** policy and the prerequisites
       required before creating a MR (merge request).

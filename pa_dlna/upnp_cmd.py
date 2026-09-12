@@ -618,8 +618,6 @@ class UPnPControlCmd(UPnPApplication, _Cmd):
                         self.devices.add(root_device)
                     elif root_device in self.devices:
                         self.devices.remove(root_device)
-        except asyncio.CancelledError:
-            pass
         finally:
             self.close()
 

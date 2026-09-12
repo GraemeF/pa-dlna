@@ -1,7 +1,6 @@
 """pa_dlna test cases."""
 
 import re
-import sys
 import asyncio
 import signal
 import time
@@ -35,22 +34,7 @@ PROPLIST = { 'application.name': 'Strawberry',
              'media.artist': 'Ziggy Stardust',
              'media.title': 'Amarok',
             }
-
-async def wait_for(awaitable, timeout=2):
-    """Work around of the asyncio.wait_for() bug, new in Python 3.9.
-
-    Bug summary: In some cases asyncio.wait_for() does not raise TimeoutError
-    although the future has been cancelled after the timeout.
-    """
-
-    bug = sys.version_info > (3, 8)
-    if bug:
-        start = time.monotonic()
-    res = await asyncio.wait_for(awaitable, timeout=timeout)
-    if bug and time.monotonic() - start >= timeout - 0.1:
-        raise TimeoutError('*** asyncio.wait_for() BUG:'
-                                ' failed to raise TimeoutError')
-    return res
+TIMEOUT = 2
 
 def get_control_point(sink_inputs):
     upnp_control_point = UPnPControlPoint(nics=[], msearch_interval=60)
@@ -135,8 +119,8 @@ class PaDlnaTestCase(IsolatedAsyncioTestCase):
             LibPulse.add_sink_inputs([])
 
             try:
-                return_code = await wait_for(
-                                        control_point.run_control_point())
+                return_code = await asyncio.wait_for(
+                                control_point.run_control_point(), TIMEOUT)
             except TimeoutError:
                 logs = ('\n'.join(l for l in m_logs.output if
                                   ':asyncio:' not in l))
@@ -315,7 +299,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
             await self.control_point.handle_upnp_notifications()
             if alive_count != 0:
                 try:
-                    await wait_for(self.control_point.test_end)
+                    await asyncio.wait_for(self.control_point.test_end, TIMEOUT)
                 except TimeoutError:
                     logs = ('\n'.join(l for l in m_logs.output if
                                       ':asyncio:' not in l))

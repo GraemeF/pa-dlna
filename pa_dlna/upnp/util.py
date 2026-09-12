@@ -40,6 +40,8 @@ def log_unhandled_exception(logger):
         async def wrapper(*args, **kwargs):
             try:
                 return await coro(*args, **kwargs)
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
                 task_name = asyncio.current_task().get_name()
                 expt_msg = (f"Exception in task '{task_name}' - function"

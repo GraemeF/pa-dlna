@@ -545,8 +545,6 @@ class Renderer:
             while test_end is None or not test_end.done():
                 await self.handle_pulse_event()
 
-        except asyncio.CancelledError:
-            pass
         except UPnPSoapFaultError as e:
             logger.error(f'{e!r}')
         except (OSError, UPnPClosedDeviceError, ControlPointAbortError) as e:

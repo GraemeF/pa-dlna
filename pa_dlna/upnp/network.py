@@ -36,6 +36,8 @@ MSEARCH = '\r\n'.join([
         f'',
         ])
 
+TIMEOUT = 5
+
 # Chunked transfer encoding.
 HTTP_CHUNK_SIZE = 512
 SEP = b'\r\n'
@@ -233,13 +235,20 @@ async def http_request(url, headers=None, post_body=None):
     post_body:  bytes object
     """
 
-    async with HttpClient(url) as client:
-        # Send the request.
-        method = 'POST' if post_body else 'GET'
-        await client.send_request(method, headers, post_body)
+    async def _http_request():
+        async with HttpClient(url) as client:
+            # Send the request.
+            method = 'POST' if post_body else 'GET'
+            await client.send_request(method, headers, post_body)
 
-        # Parse the http response.
-        return await client.receive_response()
+            # Parse the http response.
+            return await client.receive_response()
+
+    try:
+        return await asyncio.wait_for(_http_request(), TIMEOUT)
+    except TimeoutError:
+        raise UPnPHttpError(f"Task '_http_request()' has been hanging"
+                            f' for {TIMEOUT} seconds')
 
 async def http_get(url):
     """An HTTP 1.0 GET request."""

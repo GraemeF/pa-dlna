@@ -9,8 +9,6 @@ from collections import namedtuple
 from ipaddress import IPv4Address
 from unittest import TestCase, IsolatedAsyncioTestCase, mock
 
-from ..network import ipaddr_from_nics
-
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
@@ -18,8 +16,9 @@ from . import (find_in_logs, search_in_logs, loopback_datagrams, URL,
                MSEARCH_PORT, HOST, HTTP_PORT, SSDP_PARAMS, SSDP_NOTIFY,
                SSDP_ALIVE)
 from .. import TEST_LOGLEVEL
+from .. import network as network_module
 from ..network import (send_mcast, msearch, http_get, UPnPInvalidHttpError,
-                       http_soap, Notify)
+                       http_soap, Notify, ipaddr_from_nics, UPnPHttpError)
 from ..util import HTTPRequestHandler
 
 ST_ROOT_DEVICE = 'ST: upnp:rootdevice'
@@ -51,14 +50,16 @@ NICS_STAT = {'lo': snicstats(True)}
 
 class HTTPServer:
     def __init__(self, body, content_length=None, transfer_encoding=None,
-                 start_line=None):
+                 start_line=None, wait_closed=None):
         self.body = body.encode()
         self.body_length = len(self.body)
+        self.wait_closed = wait_closed
 
         header = ['HTTP/1.1 200 OK' if start_line is None else
                   start_line]
         if content_length is not None:
             header.append(f'Content-Length: {content_length}')
+
         if transfer_encoding is not None:
             header.append(f'Transfer-Encoding: {transfer_encoding}')
         header.extend(['', ''])
@@ -78,6 +79,12 @@ class HTTPServer:
 
             # Write the response.
             writer.write(self.header)
+
+            # Hang for ever.
+            if self.wait_closed:
+                await writer.drain()
+                await writer.wait_closed()
+
             if self.body_length:
                 writer.write(self.body)
         finally:
@@ -319,14 +326,14 @@ class HttpQuery(IsolatedAsyncioTestCase):
 
     @staticmethod
     async def _loopback_get(body, content_length=None, transfer_encoding=None,
-                            start_line=None):
+                            start_line=None, wait_closed=None):
         """Start the http server and send the query."""
 
         http_server = HTTPServer(body, content_length, transfer_encoding,
-                                                                start_line)
+                                                        start_line, wait_closed)
         asyncio.create_task(http_server.run())
         await http_server.startup
-        return await asyncio.wait_for(http_get(URL), 1)
+        return await http_get(URL)
 
     @staticmethod
     async def _loopback_soap(body, start_line=None):
@@ -360,6 +367,18 @@ class HttpQuery(IsolatedAsyncioTestCase):
             await self._loopback_get(body, content_length=0)
 
         self.assertIn("h11.RemoteProtocolError", cm.exception.args[0])
+
+    async def test_http_request_timeout(self):
+
+        body = 'Some content'
+        timeout = 0.5
+        with self.assertLogs(level=logging.DEBUG) as m_logs, \
+                mock.patch.object(network_module, 'TIMEOUT', timeout), \
+                self.assertRaises(UPnPHttpError) as cm:
+            res= await self._loopback_get(body, wait_closed=True)
+
+        self.assertIn(f"Task '_http_request()' has been hanging for {timeout}"
+                      f' seconds', cm.exception.args[0])
 
     async def test_empty_body(self):
         body = ''

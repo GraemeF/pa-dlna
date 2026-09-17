@@ -14,12 +14,11 @@ from . import load_ordered_tests as load_tests
 
 from . import (find_in_logs, search_in_logs, loopback_datagrams, URL,
                MSEARCH_PORT, HOST, HTTP_PORT, SSDP_PARAMS, SSDP_NOTIFY,
-               SSDP_ALIVE)
+               SSDP_ALIVE, HTTPRequestHandler)
 from .. import TEST_LOGLEVEL
 from .. import network as network_module
 from ..network import (send_mcast, msearch, http_get, UPnPInvalidHttpError,
                        http_soap, Notify, ipaddr_from_nics, UPnPHttpError)
-from ..util import HTTPRequestHandler
 
 ST_ROOT_DEVICE = 'ST: upnp:rootdevice'
 SSDP_MSEARCH = '\r\n'.join([
@@ -63,7 +62,7 @@ class HTTPServer:
         if transfer_encoding is not None:
             header.append(f'Transfer-Encoding: {transfer_encoding}')
         header.extend(['', ''])
-        self.header = '\r\n'.join(header).encode('latin-1')
+        self.header = '\r\n'.join(header).encode('ascii')
 
         loop = asyncio.get_running_loop()
         self.startup = loop.create_future()

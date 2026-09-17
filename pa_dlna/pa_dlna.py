@@ -210,9 +210,6 @@ class Renderer:
             if app_name is not None:
                 pulse.add_application(self, app_name, self.upnp_device.UDN)
 
-    async def start_track(self, writer):
-        await self.stream_sessions.start_track(writer)
-
     async def push_second_event_at(self, delay, event, sink, sink_input):
         """Push the first pulse event a second time to start a new session.
 

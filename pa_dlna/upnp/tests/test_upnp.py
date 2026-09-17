@@ -12,10 +12,10 @@ from . import load_ordered_tests as load_tests
 
 from . import (loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
                HTTP_PORT, SSDP_NOTIFY, SSDP_PARAMS, SSDP_ALIVE, URL,
-               bind_mcast_address)
+               bind_mcast_address, HTTPRequestHandler)
 from .test_network import snicaddr, snicstats
 from .device_resps import device_description, scpd, soap_response, soap_fault
-from ..util import HTTPRequestHandler, shorten
+from ..util import shorten
 from ..upnp import (UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService,
                     UPnPSoapFaultError, UPnPClosedDeviceError)
 from ..xml import UPnPXMLError
@@ -52,7 +52,7 @@ class HTTPServer:
 
         self.body = body.encode()
         header.extend([('Content-Length: ' + str(len(self.body))), '', ''])
-        self.header = '\r\n'.join(header).encode('latin-1')
+        self.header = '\r\n'.join(header).encode('ascii')
 
     async def client_connected(self, reader, writer):
         """Handle an HTTP GET request and return the response."""

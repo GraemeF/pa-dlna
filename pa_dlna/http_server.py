@@ -3,18 +3,22 @@
 import os
 import asyncio
 import signal
-import urllib.parse
 import logging
+import h11
+import datetime
+import email.utils
+import itertools
 from http import HTTPStatus
 
-from .upnp.util import (AsyncioTasks, log_unhandled_exception, log_exception,
-                        HTTPRequestHandler)
+from .upnp.util import AsyncioTasks, log_unhandled_exception, log_exception
 from .encoders import FFMpegEncoder, L16Encoder
 
 logger = logging.getLogger('http')
 
 # A stream with a throughput of 1 Mbps sends 2048 bytes every 15.6 msecs.
 HTTP_CHUNK_SIZE = 2048
+MAX_RECV = 2**16
+TIMEOUT = 10
 
 async def kill_process(process):
     try:
@@ -35,27 +39,18 @@ async def kill_process(process):
     except ProcessLookupError as e:
         logger.debug(f"Ignoring exception: '{e!r}'")
 
-async def write_http_ok(writer, renderer):
-    query = ['HTTP/1.1 200 OK',
-             'Content-type: ' + renderer.mime_type,
-             'Connection: close',
-             'Transfer-Encoding: chunked',
-             '', '']
-    writer.write('\r\n'.join(query).encode('latin-1'))
-    await writer.drain()
+def format_date_time():
+    """Generate a RFC 7231 / RFC 9110 IMF-fixdate string"""
+    dt = datetime.datetime.now(datetime.timezone.utc)
+    return email.utils.format_datetime(dt, usegmt=True)
 
 class Track:
-    """An HTTP socket connected to a subprocess stdout.
+    """An HTTP socket connected to a subprocess stdout."""
 
-    Attributes:
-        writer
-            The asyncio StreamWriter wrapping the HTTP socket.
-    """
-
-    def __init__(self, session, writer, task_name):
+    def __init__(self, session, h11_wrapper, task_name):
         self.session = session
         self.task_name = task_name
-        self.writer = writer
+        self.h11_wrapper = h11_wrapper
         self.task = None
         self.closing = False
 
@@ -63,53 +58,38 @@ class Track:
     async def shutdown(self):
         """Close the HTTP socket."""
 
-        if self.writer is None:
+        if self.h11_wrapper is None:
             return
-        writer = self.writer
-        self.writer = None
+        h11_wrapper = self.h11_wrapper
+        self.h11_wrapper = None
 
         try:
             try:
                 # Write the last chunk.
-                if not writer.is_closing():
-                    writer.write('0\r\n\r\n'.encode())
-                await writer.drain()
-
-                writer.close()
-                await writer.wait_closed()
+                assert h11_wrapper.conn.our_state is h11.SEND_BODY
+                if not h11_wrapper.writer.is_closing():
+                    await h11_wrapper.send(h11.EndOfMessage())
+                await h11_wrapper.shutdown_and_clean_up()
             except ConnectionError:
                 pass
             logger.debug(f'{self.task_name}: track is stopped')
         except asyncio.CancelledError:
+            if asyncio.current_task() == self.task:
+                raise
             logger.debug(f'{self.task_name}: Got CancelledError at Track'
                          f' shutdown')
 
-    def stop(self):
-        """Stop the track and run the shutdown coro in a task."""
-
-        # This method must not be run from the Track task.
-        if asyncio.current_task() == self.task:
-            self.session.renderer.control_point.abort(
-                                'Running Track.stop() from the Track task')
-
-        if not self.closing:
-            self.closing = True
-            self.task.cancel()
-
     async def close(self):
-        """Run the shutdown coroutine to stop the track.
-
-        This coroutine should be run after Track.write_track() has terminated.
-        """
-
-        # This method must be run from the Track task.
-        if asyncio.current_task() != self.task:
-            self.session.renderer.control_point.abort(
-                            'Running Track.close() not from the Track task')
+        """Run the shutdown coroutine to stop the track."""
 
         if not self.closing:
             self.closing = True
-            await self.shutdown()
+            if asyncio.current_task() == self.task:
+                await self.shutdown()
+            else:
+                # shutdown() is run in a task when Track.run() gets
+                # CancelledError.
+                self.task.cancel()
 
     async def write_track(self, reader):
         """Write to the StreamWriter what is read from a subprocess stdout."""
@@ -117,7 +97,7 @@ class Track:
         logger = logging.getLogger('writer')
         while True:
             partial_data = False
-            if self.writer.is_closing():
+            if self.h11_wrapper.writer.is_closing():
                 logger.debug(f'{self.task_name}: socket is closing')
                 break
             try:
@@ -125,11 +105,11 @@ class Track:
             except asyncio.IncompleteReadError as e:
                 data = e.partial
                 partial_data = True
+
             if data:
-                self.writer.write(f'{len(data):x}\r\n'.encode())
-                self.writer.write(data)
-                self.writer.write('\r\n'.encode())
-                await self.writer.drain()
+                assert self.h11_wrapper.conn.our_state is h11.SEND_BODY
+                await self.h11_wrapper.send(h11.Data(data=data))
+
             if not data or partial_data:
                 logger.debug(f'EOF reading from pipe on {self.task_name}')
                 break
@@ -139,7 +119,6 @@ class Track:
         assert self.task is not None
         renderer = self.session.renderer
         try:
-            await write_http_ok(self.writer, renderer)
             logger.debug(f'{self.task_name}: track is started')
             await self.write_track(reader)
             await self.shutdown()
@@ -148,10 +127,10 @@ class Track:
                                                   name='shutdown')
         except ConnectionError as e:
             logger.error(f'{self.task_name} HTTP socket is closed: {e!r}')
-            await self.session.close_session(shutdown_coro=True)
+            await self.session.close_session()
             await renderer.close()
         except Exception:
-            await self.session.close_session(shutdown_coro=True)
+            await self.session.close_session()
             raise
 
 class StreamProcesses:
@@ -391,28 +370,20 @@ class StreamSessions:
         self.is_playing = False
         if self.track is not None:
             try:
-                self.track.stop()
+                await self.track.close()
             finally:
                 self.track = None
         if self.processes is not None:
             await self.processes.close_encoder()
 
-    async def close_session(self, shutdown_coro=False):
-        self.is_playing = False
+    async def close_session(self):
         self.track_count = 0
-        if self.track is not None:
-            try:
-                if not shutdown_coro:
-                    self.track.stop()
-                else:
-                    await self.track.close()
-            finally:
-                self.track = None
+        await self.stop_track()
         if self.processes is not None:
             await self.processes.close()
             self.processes = None
 
-    async def start_track(self, writer):
+    async def start_track(self, h11_wrapper):
         self.is_playing = True
         # Start the subprocesses.
         if self.processes is None:
@@ -424,10 +395,109 @@ class StreamSessions:
 
         self.track_count += 1
         task_name = f'{self.renderer.name}-track-{self.track_count}'
-        self.track = Track(self, writer, task_name)
+        self.track = Track(self, h11_wrapper, task_name)
         self.track.task = self.stream_tasks.create_task(
                                         self.track.run(reader),
                                         name=task_name)
+
+class H11Wrapper:
+    _next_id = itertools.count()
+
+    def __init__(self, reader, writer):
+        self.reader = reader
+        self.writer = writer
+        self.conn = h11.Connection(h11.SERVER)
+
+        # Our Server: header
+        self.ident = ' '.join(
+            [f'h11-server/{h11.__version__}', h11.PRODUCT_ID]
+        ).encode('ascii')
+        # A unique id for this connection, to include in debugging output
+        # (useful for understanding what's going on if there are multiple
+        # simultaneous clients).
+        self._obj_id = next(H11Wrapper._next_id)
+
+    async def send(self, event):
+        # The code below doesn't send ConnectionClosed, so we don't bother
+        # handling it here either -- it would require that we do something
+        # appropriate when 'data' is None.
+        assert type(event) is not h11.ConnectionClosed
+        data = self.conn.send(event)
+        try:
+            self.writer.write(data)
+            await self.writer.drain()
+        except BaseException:
+            # If send_all raises an exception (especially asyncio.Cancelled),
+            # we have no choice but to give it up.
+            self.conn.send_failed()
+            raise
+
+    async def _read_from_peer(self):
+        if self.conn.they_are_waiting_for_100_continue:
+            self.info('Sending 100 Continue')
+            go_ahead = h11.InformationalResponse(
+                status_code=100, headers=self.basic_headers()
+            )
+            await self.send(go_ahead)
+        try:
+            data = await self.reader.read(MAX_RECV)
+        except ConnectionError:
+            # They've stopped listening. Not much we can do about it here.
+            data = b''
+        self.conn.receive_data(data)
+
+    async def next_event(self):
+        while True:
+            event = self.conn.next_event()
+            if event is h11.NEED_DATA:
+                await self._read_from_peer()
+                continue
+            return event
+
+    async def shutdown_and_clean_up(self):
+        async  def wait_and_read():
+            try:
+                while True:
+                    # Attempt to read until EOF
+                    got = await self.reader.read(MAX_RECV)
+                    if not got:
+                        break
+            except ConnectionError:
+                pass
+            finally:
+                self.writer.close()
+                await self.writer.wait_closed()
+
+        # When this method is called, it's because we definitely want to kill
+        # this connection, either as a clean shutdown or because of some kind
+        # of error or loss-of-sync bug, and we no longer care if that violates
+        # the protocol or not. So we ignore the state of self.conn, and just
+        # go ahead and do the shutdown on the socket directly. (If you're
+        # implementing a client you might prefer to send ConnectionClosed()
+        # and let it raise an exception if that violates the protocol.)
+        #
+        try:
+            self.writer.write_eof()
+        except ConnectionError:
+            # They're already gone, nothing to do
+            return
+
+        # Wait and read for a bit to give them a chance to see that we closed
+        # things, but eventually give up and just close the socket.
+        try:
+            await asyncio.wait_for(wait_and_read(), TIMEOUT)
+        except TimeoutError:
+            pass
+
+    def basic_headers(self):
+        # HTTP requires these headers in all responses.
+        return [
+            ('Date', format_date_time().encode('ascii')),
+            ('Server', self.ident),
+        ]
+
+    def info(self, msg):
+        logger.debug(f'h11-{self._obj_id}: {msg}')
 
 class HTTPServer:
     """HHTP server accepting connections only from 'allowed_ips'.
@@ -440,18 +510,100 @@ class HTTPServer:
         self.ip_address = ip_address
         self.port = port
         self.allowed_ips = set()
+
         loop = asyncio.get_running_loop()
         self.startup = loop.create_future()
 
     def allow_from(self, ip_addr):
         self.allowed_ips.add(ip_addr)
 
+    async def send_response(self, status_code, headers=None, body=None):
+        self.h11_wrapper.info(f'Sending {status_code} response')
+        headers = [] if headers is None else headers
+        headers.extend(self.h11_wrapper.basic_headers())
+        headers.append(('Connection', 'close'))
+
+        if body is not None:
+            headers.append(('Content-Length', str(len(body))))
+
+        res = h11.Response(status_code=status_code, headers=headers)
+        await self.h11_wrapper.send(res)
+        if body is not None:
+            await self.h11_wrapper.send(h11.Data(data=body))
+
+    async def send_http_ok(self, renderer):
+        headers = [('Content-Type', renderer.mime_type),
+                   ('Transfer-Encoding', 'chunked')]
+        await self.send_response(200, headers=headers)
+
+    async def send_error_response(self, status_code, body=None):
+        h11_wrapper = self.h11_wrapper
+
+        # If we can't send an error, oh well, nothing to be done
+        h11_wrapper.info('trying to send error response...')
+        if h11_wrapper.conn.our_state not in {h11.IDLE, h11.SEND_RESPONSE}:
+            h11_wrapper.info(f"...but I can't, because our state is "
+                             f'{h11_wrapper.conn.our_state}')
+            return
+
+        if body is None:
+            await self.send_response(status_code)
+        else:
+            await self.send_response(status_code,
+                [('Content-Type', 'text/plain; charset=utf-8')],
+                body.encode('utf-8'))
+        await self.h11_wrapper.send(h11.EndOfMessage())
+
+        logger.error(f'Http error: {status_code}'
+                         f'{(' - ' + body) if body is not None else ''}')
+
+    async def match_renderer(self, request):
+        for renderer in self.control_point.renderers():
+            if not renderer.match(request.target.decode()):
+                continue
+
+            if request.http_version != b'1.1':
+                await self.send_error_response(
+                                    HTTPStatus.HTTP_VERSION_NOT_SUPPORTED,
+                                    'HTTP/1.1 is required')
+                await renderer.disable_root_device()
+                break
+            if renderer.stream_sessions.is_playing:
+                await self.send_error_response(HTTPStatus.CONFLICT,
+                                    f'Cannot start {renderer.name} stream'
+                                    f' (already running)')
+                break
+            if renderer.nullsink is None:
+                await self.send_error_response(HTTPStatus.CONFLICT,
+                                    f'{renderer.name} temporarily disabled')
+                break
+
+            if request.method == b'HEAD':
+                await self.send_http_ok(renderer)
+                logger.info(f'HTTP/1.1 HEAD request from {self.ip_address}')
+                await self.h11_wrapper.send(h11.EndOfMessage())
+                break
+
+            return renderer
+
+        else:
+            await self.send_error_response(HTTPStatus.NOT_FOUND,
+                                          'Cannot find a matching renderer')
+
+        return None
+
     @log_unhandled_exception(logger)
     async def client_connected(self, reader, writer):
-        """Handle an HTTP GET request from a DLNA device.
+        """Handle an HTTP 1.1 request from a DLNA device.
 
         This is a callback scheduled as a task by asyncio.
         """
+
+        async def wait_for_request():
+            self.h11_wrapper.info('Server main loop waiting for request')
+            event = await self.h11_wrapper.next_event()
+            self.h11_wrapper.info(f'Server main loop got event: {event}')
+            return event
 
         peername = writer.get_extra_info('peername')
         ip_source = peername[0]
@@ -462,70 +614,37 @@ class HTTPServer:
             writer.close()
             return
 
+        h11_wrapper = H11Wrapper(reader, writer)
+        self.h11_wrapper = h11_wrapper
+        h11_wrapper.info('Got new connection')
+        assert h11_wrapper.conn.states == {h11.CLIENT: h11.IDLE, h11.SERVER: h11.IDLE}
+
         do_close = True
         try:
-            handler = HTTPRequestHandler(reader, writer, peername)
-            await handler.set_rfile()
-            handler.handle_one_request()
-
-            if not hasattr(handler, 'path'):
-                content = handler.rfile.getvalue().decode()
-                request = content.splitlines()[0] if content else ''
-                logger.error(f'Invalid path in HTTP request from {ip_source}:'
-                             f' {request}')
+            event = await asyncio.wait_for(wait_for_request(), TIMEOUT)
+            if (type(event) is not h11.Request or
+                    event.method not in (b'GET', b'HEAD')):
+                await self.send_error_response(HTTPStatus.BAD_REQUEST)
                 return
 
-            # Start the stream in a new task if the GET request is valid and
-            # the uri path matches one of the encoder's.
-
-            # BaseHTTPRequestHandler has decoded the received bytes as
-            # 'iso-8859-1' encoded, now unquote the uri path.
-            uri_path = urllib.parse.unquote(handler.path)
-
-            for renderer in self.control_point.renderers():
-                if not renderer.match(uri_path):
-                    continue
-
-                if handler.request_version != 'HTTP/1.1':
-                    handler.send_error(
-                                HTTPStatus.HTTP_VERSION_NOT_SUPPORTED)
-                    await renderer.disable_root_device()
-                    break
-                if renderer.stream_sessions.is_playing:
-                    handler.send_error(HTTPStatus.CONFLICT,
-                                       f'Cannot start {renderer.name} stream'
-                                       f' (already running)')
-                    break
-                if renderer.nullsink is None:
-                    handler.send_error(HTTPStatus.CONFLICT,
-                                       f'{renderer.name} temporarily disabled')
-                    break
-
-                if handler.command == 'HEAD':
-                    await write_http_ok(writer, renderer)
-                    return
-
+            renderer = await self.match_renderer(event)
+            if renderer is not None:
                 # Ok, handle the request.
-                await renderer.start_track(writer)
-                # The track task has been started by the renderer's
-                # StreamSessions instance.
+                await self.send_http_ok(renderer)
+                await renderer.stream_sessions.start_track(h11_wrapper)
                 do_close = False
                 return
 
+        except Exception as exc:
+            h11_wrapper.info(f'Error during response handler: {exc!r}')
+            if isinstance(exc, h11.RemoteProtocolError):
+                status_code = exc.error_status_hint
             else:
-                handler.send_error(HTTPStatus.NOT_FOUND,
-                                   'Cannot find a matching renderer')
-
-            # Flush the error response.
-            await writer.drain()
-
+                status_code = 500
+            await self.send_error_response(status_code, str(exc))
         finally:
             if do_close:
-                try:
-                    writer.close()
-                    await writer.wait_closed()
-                except ConnectionError:
-                    pass
+                await h11_wrapper.shutdown_and_clean_up()
 
     @log_unhandled_exception(logger)
     async def run(self):

@@ -9,10 +9,9 @@ from http import HTTPStatus
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import search_in_logs
+from . import search_in_logs, HTTPRequestHandler
 from ..network import http_get, UPnPInvalidHttpError
-from ..util import (shorten, log_unhandled_exception, AsyncioTasks,
-                    HTTPRequestHandler)
+from ..util import shorten, log_unhandled_exception, AsyncioTasks
 
 logger = logging.getLogger('test')
 
@@ -102,7 +101,7 @@ class Util(TestCase):
                 self.assertLogs(level=logging.ERROR) as m_logs:
             asyncio.run(self._loopback_get(message))
 
-        self.assertTrue(search_in_logs(m_logs.output, 'util',
+        self.assertTrue(search_in_logs(m_logs.output, 'tests',
                                        re.compile(message)))
 
 if __name__ == '__main__':

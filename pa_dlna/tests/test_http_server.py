@@ -12,7 +12,7 @@ from . import requires_resources, find_in_logs, search_in_logs
 from .streams import (BLKSIZE, run_curl, new_renderer, play_track, Renderer,
                       ControlPoint)
 from ..encoders import FFMpegEncoder, L16Encoder
-from ..http_server import HTTPServer, Track, HTTPRequestHandler
+from ..http_server import HTTPServer, Track
 
 async def start_http_server(allow_from=True):
     renderer = await new_renderer('audio/mp3')
@@ -237,7 +237,7 @@ class Http_Server(IsolatedAsyncioTestCase):
 
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
-        self.assertTrue(search_in_logs(m_logs.output, 'util',
+        self.assertTrue(search_in_logs(m_logs.output, 'http',
                             re.compile('Cannot find a matching renderer')))
 
     async def test_http_version(self):
@@ -251,8 +251,8 @@ class Http_Server(IsolatedAsyncioTestCase):
 
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
-        self.assertTrue(search_in_logs(m_logs.output, 'util',
-                                    re.compile('HTTP Version Not Supported')))
+        self.assertTrue(search_in_logs(m_logs.output, 'http',
+                                    re.compile('Http error: 505')))
 
     async def test_is_playing(self):
         with self.assertLogs(level=logging.INFO) as m_logs:
@@ -266,7 +266,7 @@ class Http_Server(IsolatedAsyncioTestCase):
         self.skip_if_curl_cannot_connect(returncode)
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
-        self.assertTrue(search_in_logs(m_logs.output, 'util',
+        self.assertTrue(search_in_logs(m_logs.output, 'http',
             re.compile('Cannot start DLNATest.* stream .already running')))
 
     async def test_None_nullsink(self):
@@ -281,26 +281,8 @@ class Http_Server(IsolatedAsyncioTestCase):
         self.skip_if_curl_cannot_connect(returncode)
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
-        self.assertTrue(search_in_logs(m_logs.output, 'util',
-                            re.compile('DLNATest.* temporarily disabled')))
-
-    async def test_no_path_in_request(self):
-        with mock.patch.object(HTTPRequestHandler, 'handle_one_request'),\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
-            renderer = await start_http_server()
-
-            # Start curl.
-            curl_task = asyncio.create_task(run_curl(renderer.current_uri))
-            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
-
-        self.skip_if_curl_cannot_connect(returncode)
-        # curl: (52) Empty reply from server.
-        # See https://curl.se/libcurl/c/libcurl-errors.html
-        self.assertEqual(returncode, 52)
-        self.assertEqual(length, 0)
-
         self.assertTrue(search_in_logs(m_logs.output, 'http',
-                                re.compile('Invalid path in HTTP request')))
+                            re.compile('DLNATest.* temporarily disabled')))
 
     async def test_HEAD_method(self):
         with self.assertLogs(level=logging.INFO) as m_logs:
@@ -313,7 +295,7 @@ class Http_Server(IsolatedAsyncioTestCase):
 
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
-        self.assertTrue(find_in_logs(m_logs.output, 'util',
+        self.assertTrue(find_in_logs(m_logs.output, 'http',
                                      'HTTP/1.1 HEAD request from 127.0.0.1'))
 
 if __name__ == '__main__':

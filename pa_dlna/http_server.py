@@ -555,7 +555,7 @@ class HTTPServer:
         await self.h11_wrapper.send(h11.EndOfMessage())
 
         logger.error(f'Http error: {status_code}'
-                         f'{(' - ' + body) if body is not None else ''}')
+                     f"{(' - ' + body) if body is not None else ''}")
 
     async def match_renderer(self, request):
         for renderer in self.control_point.renderers():

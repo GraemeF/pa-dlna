@@ -250,6 +250,8 @@ class ControlPoint(IsolatedAsyncioTestCase):
 
     @bind_mcast_address()
     async def test_local_ip_address(self):
+        # Test that 'root_device' created by an SSDP notification gets a
+        # 'local_ipaddress' later through an SSDP msearch.
         header = { 'LOCATION': URL }
         control_point = UPnPControlPoint(nics=['lo'], msearch_interval=3600)
         with mock.patch.object(control_point, '_put_notification'),\
@@ -267,6 +269,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
             # complains with 'Error on transport creation for incoming
             # connection'.
             while root_device.urlbase is None:
+                await asyncio.sleep(0)
                 await asyncio.sleep(0)
 
             # The SSDP msearch provides the local_ipaddress.
@@ -321,6 +324,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
                 # test_local_ip_address).
                 root_device = control_point._devices[UDN]
                 while root_device.urlbase is None:
+                    await asyncio.sleep(0)
                     await asyncio.sleep(0)
 
                 self.assertTrue(UDN in control_point._devices)

@@ -3,6 +3,8 @@
 import re
 import asyncio
 import logging
+import h11
+from http import HTTPStatus
 from unittest import IsolatedAsyncioTestCase, mock
 
 # Load the tests in the order they are declared.
@@ -12,7 +14,7 @@ from . import requires_resources, find_in_logs, search_in_logs
 from .streams import (BLKSIZE, run_curl, new_renderer, play_track, Renderer,
                       ControlPoint)
 from ..encoders import FFMpegEncoder, L16Encoder
-from ..http_server import HTTPServer, Track
+from ..http_server import HTTPServer, Track, H11Wrapper
 
 async def start_http_server(allow_from=True):
     renderer = await new_renderer('audio/mp3')
@@ -40,18 +42,8 @@ async def start_http_server(allow_from=True):
     return renderer
 
 @requires_resources('curl')
-class Http_Server(IsolatedAsyncioTestCase):
-    """Http server test cases."""
-
-    def skip_if_curl_cannot_connect(self, returncode):
-        # Curl fails to connect to the http server under the following
-        # conditions:
-        #   - only when run with coverage.py
-        #   - only on Python 3.11
-        #   - on GitLab CI/CD
-        if returncode == 7:
-            self.skipTest('CURLE_COULDNT_CONNECT (7) Failed to connect() to'
-                          ' host or proxy')
+class PlayTrackTests(IsolatedAsyncioTestCase):
+    """Playing a track test cases."""
 
     async def test_play_mp3(self):
         with self.assertLogs(level=logging.DEBUG) as m_logs:
@@ -213,6 +205,34 @@ class Http_Server(IsolatedAsyncioTestCase):
         self.assertTrue(find_in_logs(m_logs.output, 'http',
                                      'Exit status of parec process: 1'))
 
+    async def test_shutdown_cancelled(self):
+        task_name = 'track_test'
+        with mock.patch.object(
+                H11Wrapper, 'shutdown_and_clean_up') as h11_shutdown,\
+                self.assertLogs(level=logging.DEBUG) as m_logs:
+            h11_shutdown.side_effect = asyncio.CancelledError()
+            h11_wrapper = H11Wrapper(None, None)
+            track = Track(None, h11_wrapper, task_name)
+            task = asyncio.create_task(track.shutdown())
+            await asyncio.wait_for(task, timeout=1)
+
+        self.assertTrue(find_in_logs(m_logs.output, 'http',
+                        f'{task_name}: Got CancelledError at Track shutdown'))
+
+@requires_resources('curl')
+class HTTPServerTests(IsolatedAsyncioTestCase):
+    """Http server test cases."""
+
+    def skip_if_curl_cannot_connect(self, returncode):
+        # Curl fails to connect to the http server under the following
+        # conditions:
+        #   - only when run with coverage.py
+        #   - only on Python 3.11
+        #   - on GitLab CI/CD
+        if returncode == 7:
+            self.skipTest('CURLE_COULDNT_CONNECT (7) Failed to connect() to'
+                          ' host or proxy')
+
     async def test_not_allowed(self):
         with self.assertLogs(level=logging.INFO) as m_logs:
             renderer = await start_http_server(allow_from=False)
@@ -297,6 +317,35 @@ class Http_Server(IsolatedAsyncioTestCase):
         self.assertNotEqual(length, 0)
         self.assertTrue(find_in_logs(m_logs.output, 'http',
                                      'HTTP/1.1 HEAD request from 127.0.0.1'))
+
+    async def test_POST_method(self):
+        with self.assertLogs(level=logging.INFO) as m_logs:
+            renderer = await start_http_server()
+
+            # Start curl.
+            curl_task = asyncio.create_task(run_curl(renderer.current_uri,
+                                    extra_args=['--data-raw', 'Hello there']))
+            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+
+        self.assertEqual(returncode, 0)
+        self.assertTrue(find_in_logs(m_logs.output, 'http',
+                                     f'Http error: {HTTPStatus.BAD_REQUEST}'))
+
+    async def test_next_event_exception(self):
+        with mock.patch.object(H11Wrapper, 'next_event') as next_event,\
+                self.assertLogs(level=logging.DEBUG) as m_logs:
+            next_event.side_effect = h11.RemoteProtocolError('Forbidden',
+                                    error_status_hint=HTTPStatus.FORBIDDEN)
+            renderer = await start_http_server()
+
+            # Start curl.
+            curl_task = asyncio.create_task(run_curl(renderer.current_uri,))
+            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+
+        self.assertEqual(returncode, 0)
+        self.assertNotEqual(length, 0)
+        self.assertTrue(find_in_logs(m_logs.output,
+                'http', f'Http error: {HTTPStatus.FORBIDDEN} - Forbidden'))
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

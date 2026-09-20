@@ -20,6 +20,9 @@ HTTP_CHUNK_SIZE = 2048
 MAX_RECV = 2**16
 TIMEOUT = 10
 
+# Our 'Server' header.
+SERVER_HEADER = h11.PRODUCT_ID.encode('ascii')
+
 async def kill_process(process):
     try:
         try:
@@ -39,10 +42,16 @@ async def kill_process(process):
     except ProcessLookupError as e:
         logger.debug(f"Ignoring exception: '{e!r}'")
 
-def format_date_time():
-    """Generate a RFC 7231 / RFC 9110 IMF-fixdate string"""
+def basic_headers():
+    # Generate a RFC 7231 / RFC 9110 IMF-fixdate string.
     dt = datetime.datetime.now(datetime.timezone.utc)
-    return email.utils.format_datetime(dt, usegmt=True)
+    dt =  email.utils.format_datetime(dt, usegmt=True)
+
+    # HTTP requires these headers in all responses.
+    return [
+        ('Date', dt.encode('ascii')),
+        ('Server', SERVER_HEADER),
+    ]
 
 class Track:
     """An HTTP socket connected to a subprocess stdout."""
@@ -64,14 +73,11 @@ class Track:
         self.h11_wrapper = None
 
         try:
-            try:
-                # Write the last chunk.
-                assert h11_wrapper.conn.our_state is h11.SEND_BODY
-                if not h11_wrapper.writer.is_closing():
-                    await h11_wrapper.send(h11.EndOfMessage())
-                await h11_wrapper.shutdown_and_clean_up()
-            except ConnectionError:
-                pass
+            # Write the last chunk.
+            if (h11_wrapper.conn.our_state is h11.SEND_BODY and
+                    not h11_wrapper.writer.is_closing()):
+                await h11_wrapper.send(h11.EndOfMessage())
+            await h11_wrapper.shutdown_and_clean_up()
             logger.debug(f'{self.task_name}: track is stopped')
         except asyncio.CancelledError:
             if asyncio.current_task() == self.task:
@@ -107,7 +113,9 @@ class Track:
                 partial_data = True
 
             if data:
-                assert self.h11_wrapper.conn.our_state is h11.SEND_BODY
+                h11_state = self.h11_wrapper.conn.our_state
+                assert h11_state is h11.SEND_BODY, \
+                    f'Expecting SEND_BODY but our state is {h11_state}'
                 await self.h11_wrapper.send(h11.Data(data=data))
 
             if not data or partial_data:
@@ -235,7 +243,7 @@ class StreamProcesses:
         finally:
             # Checking for the environment variable still in the environ
             # because the test suite also patches os.environ in
-            # test_http_sever.py.
+            # test_http_server.py.
             if remove_env and 'AV_LOG_FORCE_NOCOLOR' in os.environ:
                 del os.environ['AV_LOG_FORCE_NOCOLOR']
 
@@ -408,10 +416,6 @@ class H11Wrapper:
         self.writer = writer
         self.conn = h11.Connection(h11.SERVER)
 
-        # Our Server: header
-        self.ident = ' '.join(
-            [f'h11-server/{h11.__version__}', h11.PRODUCT_ID]
-        ).encode('ascii')
         # A unique id for this connection, to include in debugging output
         # (useful for understanding what's going on if there are multiple
         # simultaneous clients).
@@ -426,19 +430,18 @@ class H11Wrapper:
         try:
             self.writer.write(data)
             await self.writer.drain()
-        except BaseException:
-            # If send_all raises an exception (especially asyncio.Cancelled),
-            # we have no choice but to give it up.
+        except (ConnectionError, asyncio.CancelledError):
+            # We have no choice but to give it up.
             self.conn.send_failed()
             raise
 
     async def _read_from_peer(self):
-        if self.conn.they_are_waiting_for_100_continue:
-            self.info('Sending 100 Continue')
-            go_ahead = h11.InformationalResponse(
-                status_code=100, headers=self.basic_headers()
-            )
-            await self.send(go_ahead)
+        # See https://datatracker.ietf.org/doc/html/rfc7231#section-5.1.1.
+        #   "A client MUST NOT generate a 100-continue expectation in a
+        #   request that does not include a message body".
+        #if self.conn.they_are_waiting_for_100_continue:
+        #    logger.error('Ignoring a "100 Continue"')
+
         try:
             data = await self.reader.read(MAX_RECV)
         except ConnectionError:
@@ -462,8 +465,6 @@ class H11Wrapper:
                     got = await self.reader.read(MAX_RECV)
                     if not got:
                         break
-            except ConnectionError:
-                pass
             finally:
                 self.writer.close()
                 await self.writer.wait_closed()
@@ -486,15 +487,8 @@ class H11Wrapper:
         # things, but eventually give up and just close the socket.
         try:
             await asyncio.wait_for(wait_and_read(), TIMEOUT)
-        except TimeoutError:
+        except (TimeoutError, ConnectionError):
             pass
-
-    def basic_headers(self):
-        # HTTP requires these headers in all responses.
-        return [
-            ('Date', format_date_time().encode('ascii')),
-            ('Server', self.ident),
-        ]
 
     def info(self, msg):
         logger.debug(f'h11-{self._obj_id}: {msg}')
@@ -520,7 +514,7 @@ class HTTPServer:
     async def send_response(self, status_code, headers=None, body=None):
         self.h11_wrapper.info(f'Sending {status_code} response')
         headers = [] if headers is None else headers
-        headers.extend(self.h11_wrapper.basic_headers())
+        headers.extend(basic_headers())
         headers.append(('Connection', 'close'))
 
         if body is not None:
@@ -538,14 +532,6 @@ class HTTPServer:
 
     async def send_error_response(self, status_code, body=None):
         h11_wrapper = self.h11_wrapper
-
-        # If we can't send an error, oh well, nothing to be done
-        h11_wrapper.info('trying to send error response...')
-        if h11_wrapper.conn.our_state not in {h11.IDLE, h11.SEND_RESPONSE}:
-            h11_wrapper.info(f"...but I can't, because our state is "
-                             f'{h11_wrapper.conn.our_state}')
-            return
-
         if body is None:
             await self.send_response(status_code)
         else:
@@ -599,12 +585,6 @@ class HTTPServer:
         This is a callback scheduled as a task by asyncio.
         """
 
-        async def wait_for_request():
-            self.h11_wrapper.info('Server main loop waiting for request')
-            event = await self.h11_wrapper.next_event()
-            self.h11_wrapper.info(f'Server main loop got event: {event}')
-            return event
-
         peername = writer.get_extra_info('peername')
         ip_source = peername[0]
         if ip_source not in self.allowed_ips:
@@ -621,7 +601,10 @@ class HTTPServer:
 
         do_close = True
         try:
-            event = await asyncio.wait_for(wait_for_request(), TIMEOUT)
+            self.h11_wrapper.info('Server main loop waiting for request')
+            event = await asyncio.wait_for(h11_wrapper.next_event(), TIMEOUT)
+            self.h11_wrapper.info(f'Server main loop got event: {event}')
+
             if (type(event) is not h11.Request or
                     event.method not in (b'GET', b'HEAD')):
                 await self.send_error_response(HTTPStatus.BAD_REQUEST)

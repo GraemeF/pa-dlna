@@ -1,8 +1,8 @@
 Development
 ===========
 
-Contributing to pa-dlna
------------------------
+Code of Conduct
+---------------
 
 Everyone should be presumed to be contributing in good faith.
 
@@ -11,21 +11,18 @@ AI policy
 Contributions that include LLM-generated content cannot exceed around 15 lines
 of code.
 
-This limit is the same as the one established by the `GCC steering
-committee`_. The purpose of this pa-dlna limit is to avoid having to deal with the
-submissions of code bloats such as the 965 AI generated changes in `MR !33`_
-based on groundless premisses in `issue #60`_.
+Creating a Merge Request
+""""""""""""""""""""""""
 
-Creating a MR
-"""""""""""""
+Prerequisites to the creation of a merge request:
 
-Prerequisites to the creation of a MR (merge request):
-
- - The MR MUST be the implementation of a fix or of an enhancement that has been
-   described in a pre-existing issue which is either a bug report or an
-   enhancement proposal.
+ - A merge request MUST be the implementation of a fix or an enhancement that
+   has been described previously in an issue. The issue is either a bug report
+   or an enhancement proposal.
  - A consensus MUST have been established in this issue about the way the bug
-   should de fixed or the enhancement implemented.
+   should de fixed or the enhancement implemented in this merge request.
+ - Merge requests fixing a typo or improving some phrasing in the documentation
+   do not require an issue.
 
 .. _design:
 

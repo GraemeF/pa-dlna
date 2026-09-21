@@ -2,13 +2,13 @@ Release history
 ===============
 
 Version 2.0
-    - pa-dlna supports Python version 3.11 or more recent. Python versions 3.8,
-      3.9 and 3.10 are not supported anymore (Python 3.10 is scheduled to reach
-      ``End of life`` 10-2026).
-    - Add the ``Contributing to pa-dlna`` section to the documentation. This
-      section documents the **pa-dlna AI** policy and the prerequisites
-      required before creating a MR (merge request).
-    - Create the Default MR template.
+    - Support now Python version 3.11 or more recent; versions 3.8, 3.9 and 3.10
+      are no longer supported (version 3.10 is scheduled to reach ``End of
+      life`` on october 2026).
+    - Add the ``Code of Conduct`` section to the documentation that lists the
+      prerequisites to the creation of a merge request (MR) and states the
+      pa-dlna **AI policy**.
+    - Create the default MR template.
 
 Version 1.2.1
     - Remove ``flit_core`` version upper limit in ``pyproject.toml``.

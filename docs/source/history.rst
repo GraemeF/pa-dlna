@@ -2,6 +2,14 @@ Release history
 ===============
 
 Version 2.0
+    - Implement compliant HTTP 1.1 code with the `h11`_ package. This adds
+      a **NEW REQUIREMENT**.
+
+      + Send HTTP 1.1 requests [#]_ and accept
+        HTTP 1.1 or HTTP 1.0 responses with the `h11`_ package.
+      + Implement the HTTP 1.1 servers that handle
+        streaming audio [#]_  to the DLNA devices with the `h11`_ package.
+
     - Support now Python version 3.11 or more recent; versions 3.8, 3.9 and 3.10
       are no longer supported (version 3.10 is scheduled to reach ``End of
       life`` on october 2026).
@@ -208,7 +216,10 @@ Version 0.1
 .. _`Cpython PR #129270`: https://github.com/python/cpython/pull/129270
 .. _`error handling changes`:
    https://libpulse.readthedocs.io/en/stable/history.html
+.. _h11: https://pypi.org/project/h11/
 
 .. rubric:: Footnotes
 
+.. [#] ``GET`` requests and ``POST`` requests used to carry the SOAP requests.
+.. [#] Chunked transfer encoding is implemented by the `h11`_ package.
 .. [#] Network Interface Controller.

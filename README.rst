@@ -28,14 +28,15 @@ Requirements
 
 Python version 3.11 or more recent.
 
-psutil
-""""""
+psutil and h11
+""""""""""""""
 
-The UPnP sub-package  and therefore the ``upnp-cmd`` and ``pa-dlna``
-commands depend on the `psutil`_ Python package. This package is available in
-most distributions as ``python3-psutil`` or ``python-psutil``. It will be
-installed by ``pip`` as a dependency of ``pa-dlna`` if not already installed as
-a package of the distribution.
+The UPnP sub-package  and therefore the ``upnp-cmd`` and ``pa-dlna`` commands
+depend on the `psutil`_ and `h11`_ Python packages. These packages are available
+in most distributions as ``python3-psutil`` or ``python-psutil`` and
+``python3-h11`` or ``python-h11``. they will be installed by ``pip`` as a
+dependency of ``pa-dlna`` if not already installed as a package of the
+distribution.
 
 libpulse
 """"""""
@@ -134,6 +135,7 @@ See the `configuration`_ section of the pa-dlna documentation.
 .. _stable documentation: https://pa-dlna.readthedocs.io/en/stable/
 .. _latest documentation: https://pa-dlna.readthedocs.io/en/latest/
 .. _psutil: https://pypi.org/project/psutil/
+.. _h11: https://pypi.org/project/h11/
 .. _`ConnectionManager:3 Service`:
         http://upnp.org/specs/av/UPnP-av-ConnectionManager-v3-Service.pdf
 .. _ffmpeg: https://www.ffmpeg.org/ffmpeg.html

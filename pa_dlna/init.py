@@ -1,6 +1,14 @@
 """Utilities for starting an UPnPApplication."""
 
 import sys
+
+# Abort early when one of those packages is missing.
+try:
+    import h11
+    import psutil
+except ImportError as e:
+    sys.exit(f'This package is required: {e!r}')
+
 import os
 import argparse
 import ipaddress

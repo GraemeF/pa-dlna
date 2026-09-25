@@ -251,16 +251,16 @@ class Pulse:
                     renderer.pulse_queue.put_nowait(
                                                 (evt_type, sink, sink_input))
 
-        prev_renderer = self.find_previous_renderer(event)
-        # The sink_input has been re-routed to another sink.
-        if prev_renderer is not None and prev_renderer is not renderer:
-            # Build our own 'exit' event (pulseaudio does not provide one)
-            # for the sink that had been previously connected to this
-            # sink_input.
-            evt_type = 'exit'
-            if event.index in self.sink_input_events:
-                del self.sink_input_events[event.index]
-            prev_renderer.pulse_queue.put_nowait((evt_type, None, None))
+            prev_renderer = self.find_previous_renderer(event)
+            # The sink_input has been re-routed to another sink.
+            if prev_renderer is not None and prev_renderer is not renderer:
+                # Build our own 'exit' event (pulseaudio does not provide one)
+                # for the sink that had been previously connected to this
+                # sink_input.
+                evt_type = 'exit'
+                if event.index in self.sink_input_events:
+                    del self.sink_input_events[event.index]
+                prev_renderer.pulse_queue.put_nowait((evt_type, None, None))
 
     def add_application(self, renderer, name, uuid):
         if self.applications is None:

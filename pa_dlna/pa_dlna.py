@@ -132,6 +132,7 @@ class Renderer:
         self.mime_type = None
         self.protocol_info = None
         self.current_uri = None
+        self.last_index = -1
         self.new_pulse_session = False
         self.suspended_state = False
         self.stream_sessions = StreamSessions(self)
@@ -267,10 +268,9 @@ class Renderer:
                         await self.set_nextavtransporturi(action, state)
                     return
                 elif action == 'Stop':
-                    index = self.get_sink_input_index()
                     self.stream_sessions.stream_tasks.create_task(
-                                            self.maybe_stop(index, state),
-                                            name=f'maybe_stop {self.name}')
+                            self.maybe_close(self.nullsink.sink_input, state),
+                            name=f'maybe_close {self.name}')
                     return
             elif isinstance(action, MetaData):
                 await self.set_avtransporturi(action, state)
@@ -288,7 +288,7 @@ class Renderer:
 
         log_action(self.name, action, state, ignored=True)
 
-    async def handle_pulse_event(self):
+    async def _handle_pulse_event(self):
         """Handle a PulseAudio event.
 
         An event is either 'new', 'change', 'remove' or 'exit'.
@@ -300,6 +300,8 @@ class Renderer:
             return
 
         event, sink, sink_input = await self.pulse_queue.get()
+        if event in ('new', 'change') and sink_input is not None:
+            self.last_index = sink_input.index
         self.log_pulse_event(event, sink_input)
 
         # Note that, at each pulseaudio event, a new instance of sink and
@@ -362,6 +364,11 @@ class Renderer:
             if self.nullsink is not None:
                 self.nullsink.sink = sink
                 self.nullsink.sink_input = sink_input
+
+    async def handle_pulse_event(self):
+        lock = asyncio.Lock()
+        async with lock:
+            await self._handle_pulse_event()
 
     async def soap_action(self, serviceId, action, args={}):
         """Send a SOAP action.
@@ -459,23 +466,25 @@ class Renderer:
         args = {'InstanceID': 0}
         await self.soap_action(AVTRANSPORT, 'Stop', args)
 
-    def get_sink_input_index(self):
-        if (self.nullsink is not None and
-                    self.nullsink.sink_input is not None):
-            return self.nullsink.sink_input.index
-
     @log_unhandled_exception(logger)
-    async def maybe_stop(self, index, state):
+    async def maybe_close(self, sink_input, state):
+
+        async def new_track():
+            while True:
+                await asyncio.sleep(0.1)
+                if self.last_index > index:
+                    return
+
         # Work around for issue #48:
         #   KDE music players trigger (randomly) 'remove' events upon track
         #   changes.
-        await asyncio.sleep(ISSUE_48_TIMER)
-
-        cur_index = self.get_sink_input_index()
-        if cur_index is not None and cur_index != index:
-            # A new track is being played.
-            # Ignore the 'remove' event.
-            self.log_pulse_event('remove ignored', self.nullsink.sink_input)
+        index = sink_input.index
+        try:
+            await asyncio.wait_for(new_track(), ISSUE_48_TIMER)
+        except TimeoutError:
+            pass
+        else:
+            self.log_pulse_event('remove ignored', sink_input)
             return
 
         self.nullsink.sink_input = None

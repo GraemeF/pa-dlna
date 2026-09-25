@@ -15,7 +15,7 @@ from . import (loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
                bind_mcast_address, HTTPRequestHandler)
 from .test_network import snicaddr, snicstats
 from .device_resps import device_description, scpd, soap_response, soap_fault
-from ..util import shorten
+from ..util import shorten, log_unhandled_exception
 from ..upnp import (UPnPControlPoint, UPnPRootDevice, UPnPDevice, UPnPService,
                     UPnPSoapFaultError, UPnPClosedDeviceError)
 from ..xml import UPnPXMLError
@@ -23,6 +23,8 @@ from ..xml import UPnPXMLError
 SSDP_BYEBYE = SSDP_NOTIFY.format(nts='NTS: ssdp:byebye', **SSDP_PARAMS)
 SSDP_UPDATE = SSDP_NOTIFY.format(nts='NTS: ssdp:update', **SSDP_PARAMS)
 CONNECTIONMANAGER = 'urn:upnp-org:serviceId:ConnectionManager'
+
+logger = logging.getLogger('test_upnp')
 
 class HTTPServer:
     def __init__(self, soap_response, icons, devices):
@@ -54,6 +56,7 @@ class HTTPServer:
         header.extend([('Content-Length: ' + str(len(self.body))), '', ''])
         self.header = '\r\n'.join(header).encode('ascii')
 
+    @log_unhandled_exception(logger)
     async def client_connected(self, reader, writer):
         """Handle an HTTP GET request and return the response."""
 
@@ -71,8 +74,8 @@ class HTTPServer:
             writer.write(self.header)
             writer.write(self.body)
         finally:
-            await writer.drain()
             try:
+                await writer.drain()
                 writer.close()
                 await writer.wait_closed()
             except ConnectionError:

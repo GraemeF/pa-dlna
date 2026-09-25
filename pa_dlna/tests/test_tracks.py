@@ -16,10 +16,13 @@ try:
 except ImportError:
     libpulse = None
 
+# Load the tests in the order they are declared.
+from . import load_ordered_tests as load_tests
+
 from . import requires_resources, setUpModule
 from ..init import parse_args
 from ..config import UserConfig
-from ..pa_dlna import AVControlPoint
+from ..pa_dlna import AVControlPoint, ISSUE_48_TIMER
 
 import logging
 logger = logging.getLogger('tsample')
@@ -413,6 +416,7 @@ class PlayTracks(IsolatedAsyncioTestCase):
                 await upmpdcli.stop_track(proc)
             if cancelled:
                 self.fail('The test has been cancelled')
+            await asyncio.sleep(ISSUE_48_TIMER)
 
     async def test_play_track_aac(self):
         async with UpmpdcliMpd(self, encoder='FFMpegAacEncoder') as upmpdcli:

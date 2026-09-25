@@ -525,15 +525,17 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         index = 999
         ctx = PulseEventContext(prev_sink_input_index=index)
         self.assertEqual(ctx.sink, None)
+        ctx.renderer.last_index = 1001
+
         self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
         self.assertEqual(ctx.sink_input, None)
 
-        with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 0.01),\
+        with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 1),\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             result, logs = await self.patch_soap_action('remove', ctx,
                                                     transport_state='PLAYING')
             ctx.renderer.nullsink.sink_input.index = 1000
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1)
 
         logs = logs.output + m_logs.output
         self.assertEqual(len(result), 0)

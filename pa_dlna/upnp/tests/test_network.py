@@ -19,6 +19,9 @@ from .. import TEST_LOGLEVEL
 from .. import network as network_module
 from ..network import (send_mcast, msearch, http_get, UPnPInvalidHttpError,
                        http_soap, Notify, ipaddr_from_nics, UPnPHttpError)
+from ..util import log_unhandled_exception
+
+logger = logging.getLogger('test_network')
 
 ST_ROOT_DEVICE = 'ST: upnp:rootdevice'
 SSDP_MSEARCH = '\r\n'.join([
@@ -67,6 +70,7 @@ class HTTPServer:
         loop = asyncio.get_running_loop()
         self.startup = loop.create_future()
 
+    @log_unhandled_exception(logger)
     async def client_connected(self, reader, writer):
         """Handle an HTTP GET request and return the response."""
 
@@ -87,8 +91,8 @@ class HTTPServer:
             if self.body_length:
                 writer.write(self.body)
         finally:
-            await writer.drain()
             try:
+                await writer.drain()
                 writer.close()
                 await writer.wait_closed()
             except ConnectionError:

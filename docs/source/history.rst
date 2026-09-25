@@ -3,7 +3,7 @@ Release history
 
 Version 2.0
     - Implement compliant HTTP 1.1 code with the `h11`_ package. This adds
-      a **NEW REQUIREMENT**.
+      the **new requirement** for the h11 package.
 
       + Send HTTP 1.1 requests [#]_ and accept
         HTTP 1.1 or HTTP 1.0 responses with the `h11`_ package.
@@ -13,6 +13,10 @@ Version 2.0
     - Support now Python version 3.11 or more recent; versions 3.8, 3.9 and 3.10
       are no longer supported (version 3.10 is scheduled to reach ``End of
       life`` on october 2026).
+    - Fix failures to change the tracks manually on the ``Strawberry`` music
+      player when cross-fading is disabled (issue #65). This should also fix
+      the problem reported in issue #48 whose fix implemented in pa-dlna version
+      0.16 is not robust.
     - Add the ``Code of Conduct`` section to the documentation that lists the
       prerequisites to the creation of a merge request (MR) and states the
       pa-dlna **AI policy**.
@@ -220,6 +224,6 @@ Version 0.1
 
 .. rubric:: Footnotes
 
-.. [#] ``GET`` requests and ``POST`` requests used to carry the SOAP requests.
-.. [#] Chunked transfer encoding is implemented by the `h11`_ package.
+.. [#] HTTP requests ``GET`` and ``POST`` used to carry the SOAP requests.
+.. [#] HTTP 1.1 chunked transfer encoding is implemented by the `h11`_ package.
 .. [#] Network Interface Controller.

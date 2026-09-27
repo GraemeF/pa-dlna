@@ -17,6 +17,10 @@ Version 2.0
       player when cross-fading is disabled (issue #65). This should also fix
       the problem reported in issue #48 whose fix implemented in pa-dlna version
       0.16 is not robust.
+    - Fix the systematic delay of 5 seconds (the default) used to spread out
+      SOAP requests when cross-fading is disabled on the ``Strawberry`` music
+      player (see previous item). This delay is only enforced when tracks are
+      switched too rapidly.
     - Add the ``Code of Conduct`` section to the documentation that lists the
       prerequisites to the creation of a merge request (MR) and states the
       pa-dlna **AI policy**.

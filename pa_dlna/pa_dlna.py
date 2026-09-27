@@ -256,8 +256,9 @@ class Renderer:
         # Get the stream state.
         state = await self.get_transport_state()
 
-        # Space out SOAP actions that start or stop a stream.
-        if self.encoder.soap_minimum_interval != 0:
+        # Space out SOAP actions that start a track or switch to the next
+        # track.
+        if self.encoder.soap_minimum_interval != 0 and action != 'Stop':
             await self.soap_spacer.wait()
 
         # Run an AVTransport action if needed.
@@ -475,9 +476,10 @@ class Renderer:
                 if self.last_index > index:
                     return
 
-        # Work around for issue #48:
-        #   KDE music players trigger (randomly) 'remove' events upon track
-        #   changes.
+        # Fix issue #65:
+        #   Handle the case where a 'remove' or 'exit' event is directly
+        #   followed by a 'change' or 'new' event to indicate the switch to
+        #   the next track and not the end of a session.
         index = sink_input.index
         try:
             await asyncio.wait_for(new_track(), ISSUE_48_TIMER)

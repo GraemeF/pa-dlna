@@ -189,10 +189,10 @@ Common options
       option to ``no`` when the logs show ERROR entries upon tracks changes.
 
   *soap_minimum_interval*
-    UPnP SOAP actions that start/stop a stream are spread out at
-    ``soap_minimum_interval`` seconds to avoid the problem described at `issue
-    #16`_. This applies only to the SOAP actions that initiate or stop a stream:
-    SetAVTransportURI, SetNextAVTransportURI and Stop.
+    UPnP SOAP requests that start a track or switch to the next track are spread
+    out at ``soap_minimum_interval`` seconds to avoid the problem described at
+    `issue #16`_. This applies only to the SOAP requests that change tracks:
+    SetAVTransportURI and SetNextAVTransportURI.
 
     The default is 5 seconds.
 

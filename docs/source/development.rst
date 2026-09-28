@@ -256,12 +256,12 @@ Releasing
 * Build locally the documentation, see one of the previous sections.
 * Commit the changes::
 
-    $ git commit -m 'Version 1.n'
+    $ git commit -m 'Version 2.n'
     $ git push
 
 * Tag the release and push::
 
-    $ git tag -a 1.n -m 'Version 1.n'
+    $ git tag -a 2.n -m 'Version 2.n'
     $ git push --tags
 
 * Publish the new version to PyPi::

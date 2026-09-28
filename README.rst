@@ -34,7 +34,7 @@ psutil and h11
 The UPnP sub-package  and therefore the ``upnp-cmd`` and ``pa-dlna`` commands
 depend on the `psutil`_ and `h11`_ Python packages. These packages are available
 in most distributions as ``python3-psutil`` or ``python-psutil`` and
-``python3-h11`` or ``python-h11``. they will be installed by ``pip`` as a
+``python3-h11`` or ``python-h11``. They will be installed by ``pip`` as a
 dependency of ``pa-dlna`` if not already installed as a package of the
 distribution.
 

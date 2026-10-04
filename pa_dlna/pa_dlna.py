@@ -489,7 +489,8 @@ class Renderer:
             self.log_pulse_event('remove ignored', sink_input)
             return
 
-        self.nullsink.sink_input = None
+        if self.nullsink is not None:
+            self.nullsink.sink_input = None
 
         # Let the HTTP 1.1 chunked transfer encoding handles the closing of
         # the stream.

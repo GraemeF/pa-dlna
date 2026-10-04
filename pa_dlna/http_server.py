@@ -433,6 +433,9 @@ class H11Wrapper:
         except (ConnectionError, asyncio.CancelledError):
             # We have no choice but to give it up.
             self.conn.send_failed()
+            logger.error(f'H11Wrapper.send() failure, '
+                         f'our_state: {self.conn.our_state} - '
+                         f'writer.is_closing: {self.writer.is_closing()}')
             raise
 
     async def _read_from_peer(self):

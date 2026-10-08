@@ -182,6 +182,7 @@ class PlayTrackTests(IsolatedAsyncioTestCase):
 
             await renderer.stream_sessions.processes.encoder_task
             disable.assert_called_once()
+            await renderer.close()
 
         self.assertEqual(returncode, 0)
         self.assertEqual(length, 0)

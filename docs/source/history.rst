@@ -1,6 +1,12 @@
 Release history
 ===============
 
+Version 2.1
+    - Add to gitlab CI/CD the tests streaming audio to ``upmpdcli``
+      (`UPnP Audio Media Renderer based on MPD`_).
+    - Fix AttributeError exception upon stopping a track and closing the DLNA
+      device simultaneously (issue #66).
+
 Version 2.0
     - Implement compliant HTTP 1.1 code with the `h11`_ package. This adds
       the **new requirement** for the h11 package.
@@ -225,6 +231,8 @@ Version 0.1
 .. _`error handling changes`:
    https://libpulse.readthedocs.io/en/stable/history.html
 .. _h11: https://pypi.org/project/h11/
+.. _`UPnP Audio Media Renderer based on MPD`:
+   https://www.lesbonscomptes.com/upmpdcli/
 
 .. rubric:: Footnotes
 

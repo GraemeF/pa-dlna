@@ -11,8 +11,7 @@ default:
             - .cache/pip
 
     before_script:
-        - apt-get update -yq && apt-get install -yq curl ffmpeg
-        - python --version
+        - apt-get update -yq && apt-get install -yq curl ffmpeg pulseaudio-utils
         - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install psutil libpulse h11
 
 .pulseaudio: &pulseaudio
@@ -20,7 +19,7 @@ default:
     - pulseaudio --verbose --daemonize=yes
 
 .pipewire: &pipewire
-    - apt-get update -yq && apt-get install -yq pulseaudio-utils xvfb
+    - apt-get update -yq && apt-get install -yq xvfb
       pipewire wireplumber pipewire-pulse
     - |
       export 'XDG_RUNTIME_DIR=/tmp'
@@ -29,6 +28,16 @@ default:
       pipewire &
       pipewire-pulse &
       wireplumber &
+
+# Install upmdcli and mpd.
+.upmdcli-mpd: &upmdcli-mpd
+    - mkdir -p /usr/share/keyrings
+    - curl --output-dir /usr/share/keyrings
+      -O https://www.lesbonscomptes.com/pages/lesbonscomptes.gpg
+    - curl --output-dir /etc/apt/sources.list.d/ \
+      -O https://www.lesbonscomptes.com/upmpdcli/pages/upmpdcli-trixie.sources
+    - apt-get update -yq && apt-get install -yq upmpdcli
+    - apt-get update -yq && apt-get install -yq mpd
 
 .unittest-scripts: &unittest-scripts
     - python -m unittest --verbose --failfast
@@ -73,6 +82,7 @@ py314:
     stage: test
     script:
         - *pulseaudio
+        - *upmdcli-mpd
         - *unittest-scripts
         - *coverage-scripts
     coverage: '/TOTAL.* (100\%|\d?\d\%)$/'

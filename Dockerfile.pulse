@@ -12,13 +12,26 @@
 # (possibly twice, see last comment below) and run the test suite or maybe
 # only some tests.
 #   $ sudo /usr/bin/docker run -it pa-dlna-pulse
+#
+################################################################################
 
-FROM debian:latest
+FROM python:3.14
 
-RUN apt-get update -yq && apt-get install -yq python3-psutil procps
-RUN apt-get update -yq && apt-get install -yq curl ffmpeg
-RUN apt-get update -yq && apt-get install -yq pulseaudio-utils
-RUN apt-get update -yq && apt-get install -yq pulseaudio
+RUN apt-get update -yq && apt-get install -yq procps curl ffmpeg
+RUN apt-get update -yq && apt-get install -yq pulseaudio pulseaudio-utils
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install libpulse h11 psutil \
+    coverage
+
+# Install upmdcli
+RUN mkdir -p /usr/share/keyrings
+RUN curl --output-dir /usr/share/keyrings \
+    -O https://www.lesbonscomptes.com/pages/lesbonscomptes.gpg
+RUN curl --output-dir /etc/apt/sources.list.d/ \
+    -O https://www.lesbonscomptes.com/upmpdcli/pages/upmpdcli-trixie.sources
+RUN apt-get update -yq && apt-get install -yq upmpdcli
+
+# Install mpd
+RUN apt-get update -yq && apt-get install -yq mpd
 
 RUN mkdir /pa-dlna
 COPY . /pa-dlna
@@ -30,10 +43,18 @@ RUN /bin/find /pa-dlna -exec chown padlna:root {} \;
 
 USER padlna
 WORKDIR /pa-dlna
-RUN mkdir .config
 
-RUN pulseaudio --verbose --daemonize=yes && python3 -m unittest --verbose --failfast
+RUN pulseaudio --verbose --daemonize=yes && \
+    python -m coverage run --include=./* -m unittest && \
+    python -m coverage report -m
 
 # For some reason, when run interactively, starting the pulseaudio daemon
 # may fail the first time and succeed the next.
 ENTRYPOINT [ "/bin/bash" ]
+
+# For example to run interactively and test the 'test_play_track_aac' test:
+#
+# $ sudo /usr/bin/docker run -it pa-dlna-pulse
+#
+# padlna@db6a2f76cd4c:/pa-dlna$ pulseaudio --verbose --daemonize=yes
+# padlna@db6a2f76cd4c:/pa-dlna$ python -X no_debug_ranges -m unittest -v -k test_play_track_aac

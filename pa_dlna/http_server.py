@@ -385,11 +385,13 @@ class StreamSessions:
             await self.processes.close_encoder()
 
     async def close_session(self):
-        self.track_count = 0
-        await self.stop_track()
-        if self.processes is not None:
-            await self.processes.close()
-            self.processes = None
+        try:
+            await self.stop_track()
+            if self.processes is not None:
+                await self.processes.close()
+                self.processes = None
+        finally:
+            self.track_count = 0
 
     async def start_track(self, h11_wrapper):
         self.is_playing = True

@@ -1,6 +1,5 @@
 """Tests that stream tracks to upmpdcli and mpd."""
 
-import sys
 import os
 import time
 import asyncio
@@ -19,21 +18,46 @@ except ImportError:
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, setUpModule
+from . import requires_resources
 from ..init import parse_args
 from ..config import UserConfig
 from ..pa_dlna import AVControlPoint, ISSUE_48_TIMER
 
 import logging
-logger = logging.getLogger('tsample')
+logger = logging.getLogger('track')
 
-TRACK_TIMEOUT = 20
+DEBUG = 0
+RENDERER_TIMEOUT = 5
 DEFAULT_ENCODER = 'L16Encoder'
+
+def setup_logging():
+
+    class FilterDebug:
+        def filter(self, record):
+            """Ignore DEBUG logging messages."""
+            if record.levelno != logging.DEBUG:
+                return True
+
+    root = logging.getLogger()
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(fmt='%(name)-7s %(levelname)-7s %(message)s')
+    handler.setFormatter(formatter)
+    root.addHandler(handler)
+
+    # Ignore DEBUG logging messages from the following loggers.
+    logging.getLogger('upnp').addFilter(FilterDebug())
+    logging.getLogger('network').addFilter(FilterDebug())
+    logging.getLogger('asyncio').addFilter(FilterDebug())
+
+if DEBUG:
+    setup_logging()
 
 # Courtesy of https://espressif-docs.readthedocs-hosted.com/projects/esp-adf/
 # en/latest/design-guide/audio-samples.html.
-# A 16 seconds track: Duration: 00:00:15.88, start: 0.025057, bitrate: 64 kb/s
-TRACK_16 = pathlib.Path(__file__).parent / 'gs-16b-1c-44100hz.mp3'
+# A 5 seconds track: Duration: 00:00:05.03, start: 0.025057, bitrate: 64 kb/s
+TRACK_PATH = pathlib.Path(__file__).parent / 'gs-16b-1c-44100hz-5sec.mp3'
+TRACK_LENGTH = 5
 
 # Map values to their name.
 if libpulse is not None:
@@ -175,28 +199,6 @@ async def proc_run(cmd, *args, env=None):
         if stderr:
             logger.debug(f'[stderr]\n{stderr.decode()}')
 
-async def get_sink_state(lib_pulse, sink):
-    for _sink in await lib_pulse.pa_context_get_sink_info_list():
-        if _sink.index == sink.index:
-            return SINK_STATES[_sink.state]
-    else:
-        raise TrackRuntimeError(f"'Cannot find sink '{sink.name}'")
-
-async def sink_is_running(lib_pulse, sink):
-    # Loop for ever.
-    while True:
-        state = await get_sink_state(lib_pulse, sink)
-        if state == 'PA_SINK_RUNNING':
-            return True
-        await asyncio.sleep(0)
-
-async def http_transfer_end(renderer):
-    # Wait for the termination of the HTTP 1.1 chunked transfer encoding.
-    while True:
-        if renderer.stream_sessions.track_count == 0:
-            return
-        await asyncio.sleep(0.1)
-
 class UpmpdcliMpd:
     """Set up the environment to play tracks with upmpdcli and mpd.
 
@@ -299,6 +301,28 @@ class UpmpdcliMpd:
         logger.debug(f'Found renderer {renderer.name}')
         return renderer
 
+    async def get_sink_state(self):
+        sink = self.renderer.nullsink.sink
+        for _sink in await self.lib_pulse.pa_context_get_sink_info_list():
+            if _sink.index == sink.index:
+                return SINK_STATES[_sink.state]
+        else:
+            raise TrackRuntimeError(f"'Cannot find sink '{sink.name}'")
+
+    async def renderer_is_playing(self):
+        # Loop for ever.
+        while True:
+            if self.renderer.stream_sessions.track_count == 1:
+                return True
+            await asyncio.sleep(0.1)
+
+    async def http_transfer_end(self):
+        # Wait for the termination of the HTTP 1.1 chunked transfer encoding.
+        while True:
+            if self.renderer.stream_sessions.track_count == 0:
+                return
+            await asyncio.sleep(0.1)
+
     async def start_track(self, track_path):
         # ffmpeg plays a track to the sink of the upmpdcli renderer.
         renderer_sink = self.renderer.nullsink.sink
@@ -310,31 +334,32 @@ class UpmpdcliMpd:
 
         # Wait for the MPD sink to be running.
         try:
-            await asyncio.wait_for(sink_is_running(self.lib_pulse,
-                                                self.mpd_sink), TRACK_TIMEOUT)
+            await asyncio.wait_for(self.renderer_is_playing(),
+                                                    RENDERER_TIMEOUT)
         except TimeoutError:
             try:
-                state = await get_sink_state(self.lib_pulse, self.mpd_sink)
-                logger.error(f"MPD sink state is '{state}'"
-                             f" after {TRACK_TIMEOUT} seconds")
+                state = await renderer.get_transport_state()
+                logger.error(f"TimeoutError: renderer state is '{state}'"
+                             f" after {RENDERER_TIMEOUT} seconds")
+                raise
             finally:
                 await self.stop_track(track_proc)
-                track_proc = None
 
         return track_proc
 
     async def stop_track(self, track_proc):
-        # Stop the stream.
-        await proc_terminate(track_proc)
-
-        # The timeout value depends on ISSUE_48_TIMER value.
-        # It has been increased by ISSUE_48_TIMER after the issue #48 fix.
-        timeout = 7
+        # The timeout value is at least (TRACK_LENGTH + ISSUE_48_TIMER)
+        # Add a 10 seconds margin for slow CPUs.
+        timeout = TRACK_LENGTH + ISSUE_48_TIMER + 10
         try:
-            await asyncio.wait_for(http_transfer_end(self.renderer), timeout)
+            await asyncio.wait_for(self.http_transfer_end(), timeout)
         except TimeoutError:
-            logger.error(f'Http transfer still running {timeout} seconds '
-                         f'after the audio stream source has been terminated')
+            logger.error(f'Http transfer still running '
+                         f'after {timeout} seconds')
+            raise
+        finally:
+            # Stop the stream.
+            await proc_terminate(track_proc)
 
     async def __aenter__(self):
         try:
@@ -390,33 +415,24 @@ class UpmpdcliMpd:
 class PlayTracks(IsolatedAsyncioTestCase):
 
     async def play_track(self, upmpdcli):
-        proc = None
+
         cancelled = False
         try:
-            proc = await upmpdcli.start_track(TRACK_16)
-            self.assertTrue(proc is not None)
+            track_proc = await upmpdcli.start_track(TRACK_PATH)
 
-            lib_pulse = upmpdcli.lib_pulse
-            mpd_state = await get_sink_state(lib_pulse, upmpdcli.mpd_sink)
-            self.assertEqual(mpd_state, 'PA_SINK_RUNNING')
-
-            renderer_sink = upmpdcli.renderer.nullsink.sink
-            renderer_state = await get_sink_state(lib_pulse,
-                                                            renderer_sink)
+            renderer_state = await upmpdcli.get_sink_state()
             self.assertEqual(renderer_state, 'PA_SINK_RUNNING')
 
-            state = await upmpdcli.renderer.get_transport_state()
-            self.assertEqual(state, 'PLAYING')
+            device_state = await upmpdcli.renderer.get_transport_state()
+            self.assertEqual(device_state, 'PLAYING')
 
         except asyncio.CancelledError as e:
             logger.info(f'Got {e!r}')
             cancelled = True
         finally:
-            if proc is not None:
-                await upmpdcli.stop_track(proc)
+            await upmpdcli.stop_track(track_proc)
             if cancelled:
                 self.fail('The test has been cancelled')
-            await asyncio.sleep(ISSUE_48_TIMER)
 
     async def test_play_track_aac(self):
         async with UpmpdcliMpd(self, encoder='FFMpegAacEncoder') as upmpdcli:
@@ -425,40 +441,3 @@ class PlayTracks(IsolatedAsyncioTestCase):
     async def test_play_track_l16(self):
         async with UpmpdcliMpd(self, encoder='L16Encoder') as upmpdcli:
             await self.play_track(upmpdcli)
-
-async def main():
-    encoder = DEFAULT_ENCODER
-    if len(sys.argv) == 2:
-        encoder = sys.argv[1]
-
-    async with UpmpdcliMpd(encoder=encoder, loglevel='debug') as upmpdcli:
-        logger.info(f"Using '{encoder}' encoder")
-
-        proc = None
-        try:
-            proc = await upmpdcli.start_track(TRACK_16)
-            if proc is None:
-                return
-
-            lib_pulse = upmpdcli.lib_pulse
-            mpd_state = await get_sink_state(lib_pulse, upmpdcli.mpd_sink)
-            logger.info(f'MPD sink state: {mpd_state}')
-
-            renderer_sink = upmpdcli.renderer.nullsink.sink
-            renderer_state = await get_sink_state(lib_pulse,
-                                                            renderer_sink)
-            logger.info(f'upmpdcli sink state: {renderer_state}')
-
-            # Get the upmpdcli MediaRenderer state using a
-            # 'GetTransportInfo' soap action.
-            state = await upmpdcli.renderer.get_transport_state()
-            logger.info(f'upmpdcli MediaRenderer state: {state}')
-
-        except asyncio.CancelledError as e:
-            logger.info(f'Got {e!r}')
-        finally:
-            if proc is not None:
-                await upmpdcli.stop_track(proc)
-
-if __name__ == '__main__':
-    asyncio.run(main())

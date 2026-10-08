@@ -34,7 +34,7 @@ default:
     - mkdir -p /usr/share/keyrings
     - curl --output-dir /usr/share/keyrings
       -O https://www.lesbonscomptes.com/pages/lesbonscomptes.gpg
-    - curl --output-dir /etc/apt/sources.list.d/ \
+    - curl --output-dir /etc/apt/sources.list.d/
       -O https://www.lesbonscomptes.com/upmpdcli/pages/upmpdcli-trixie.sources
     - apt-get update -yq && apt-get install -yq upmpdcli
     - apt-get update -yq && apt-get install -yq mpd

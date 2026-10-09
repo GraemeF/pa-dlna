@@ -184,6 +184,7 @@ class StreamProcesses:
                         task.cancel()
                         break
             await kill_process(self.encoder_proc)
+            await self.encoder_task
             self.encoder_proc = None
             self.stream_reader = None
             return True
@@ -200,6 +201,7 @@ class StreamProcesses:
                 await kill_process(self.parec_proc)
                 if not self.no_encoder:
                     os.close(self.pipe_reader)
+                await self.parec_task
                 self.parec_proc = None
                 self.stream_reader = None
                 parec_killed = True

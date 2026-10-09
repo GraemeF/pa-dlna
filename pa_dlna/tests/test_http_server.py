@@ -197,7 +197,7 @@ class PlayTrackTests(IsolatedAsyncioTestCase):
                                                    logs=m_logs)
 
             await renderer.stream_sessions.processes.parec_task
-            await renderer.stream_sessions.processes.close()
+            await renderer.close()
             returncode, length = await curl_task
             disable.assert_called_once()
 

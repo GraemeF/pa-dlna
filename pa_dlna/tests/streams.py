@@ -231,7 +231,8 @@ class Renderer(pa_dlna.DLNATestDevice):
         pass
 
     async def close(self):
-        pass
+        # Terminate the parec process and the encoder process (if any).
+        await self.stream_sessions.close_session()
 
 class ControlPoint(pa_dlna.AVControlPoint):
     def __init__(self):

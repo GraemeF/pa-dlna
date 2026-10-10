@@ -30,15 +30,8 @@ async def kill_process(process):
             process.terminate()
             await asyncio.wait_for(process.wait(), timeout=1.0)
         except TimeoutError:
-            pass
-        finally:
-            # Kill the process if the process is still alive.
-            # And close transports of stdin, stdout, and stderr pipes,
-            # otherwise we would get an exception on exit triggered by garbage
-            # collection (a Python bug ?):
-            # Exception ignored in: <function BaseSubprocessTransport.__del__:
-            #   RuntimeError: Event loop is closed
-            process._transport.close()
+            process.kill()
+            await asyncio.wait_for(process.wait(), timeout=1.0)
     except ProcessLookupError as e:
         logger.debug(f"Ignoring exception: '{e!r}'")
 

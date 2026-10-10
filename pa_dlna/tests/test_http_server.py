@@ -142,12 +142,20 @@ class PlayTrackTests(IsolatedAsyncioTestCase):
         self.assertEqual(length, sum(transactions[1:]))
 
     async def test_ConnectionError(self):
+        async def no_more_processes():
+            while True:
+                if renderer.stream_sessions.processes is None:
+                    break
+                await asyncio.sleep(0.1)
+
         with mock.patch.object(Track, 'write_track') as wtrack,\
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             wtrack.side_effect = ConnectionError()
             curl_task, renderer = await play_track('audio/mp3',
                 ['ignore', BLKSIZE], wait_for_completion=False, logs=m_logs)
             returncode, length = await curl_task
+
+            await asyncio.wait_for(no_more_processes(), 1.0)
 
         self.assertEqual(returncode, 0)
         self.assertEqual(length, 0)

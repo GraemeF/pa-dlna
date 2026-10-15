@@ -5,14 +5,15 @@ import asyncio
 import psutil
 import logging
 import urllib
-from unittest import mock, IsolatedAsyncioTestCase
+from unittest import mock
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
 from . import (loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
                HTTP_PORT, SSDP_NOTIFY, SSDP_PARAMS, SSDP_ALIVE, URL,
-               bind_mcast_address, HTTPRequestHandler)
+               bind_mcast_address, HTTPRequestHandler,
+               LoggingIsolatedAsyncioTestCase)
 from .test_network import snicaddr, snicstats
 from .device_resps import device_description, scpd, soap_response, soap_fault
 from ..util import shorten, log_unhandled_exception
@@ -94,7 +95,7 @@ async def start_http_server(soap_response=None, icons='', devices=''):
     await http_server.startup
     return task
 
-class ControlPoint(IsolatedAsyncioTestCase):
+class ControlPoint(LoggingIsolatedAsyncioTestCase):
     """Control Point test cases."""
 
     @staticmethod
@@ -106,30 +107,26 @@ class ControlPoint(IsolatedAsyncioTestCase):
                                         patch_method=patch_method)
 
     async def test_alive(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await self._run_until_patch([SSDP_ALIVE])
+        await self._run_until_patch([SSDP_ALIVE])
 
-        self.assertTrue(find_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(find_in_logs(self.logging_output, 'upnp',
                         'New UPnP services: AVTransport, RenderingControl,'
                         ' ConnectionManager'))
-        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
                 re.compile('UPnPRootDevice uuid:fffff.* has been created')))
 
     async def test_update(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await self._run_until_patch([SSDP_UPDATE, SSDP_ALIVE])
-
-        self.assertTrue(find_in_logs(m_logs.output, 'upnp',
+        await self._run_until_patch([SSDP_UPDATE, SSDP_ALIVE])
+        self.assertTrue(find_in_logs(self.logging_output, 'upnp',
                 f'Ignore not supported ssdp:update notification from {HOST}'))
 
     async def test_bad_nts(self):
         nts_field = 'ssdp:FOO'
         nts = f'NTS: {nts_field}'
         ssdp_bad_nts = SSDP_NOTIFY.format(nts=nts, **SSDP_PARAMS)
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await self._run_until_patch([ssdp_bad_nts, SSDP_ALIVE])
+        await self._run_until_patch([ssdp_bad_nts, SSDP_ALIVE])
 
-        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
                                 re.compile(f"Unknown NTS field '{nts_field}'")))
 
     async def test_byebye(self):
@@ -140,10 +137,9 @@ class ControlPoint(IsolatedAsyncioTestCase):
             control_point._devices[UDN] = root_device
 
         device_name = '_Some root device name_'
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await self._run_until_patch([SSDP_BYEBYE], setup=setup)
+        await self._run_until_patch([SSDP_BYEBYE], setup=setup)
 
-        self.assertTrue(find_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(find_in_logs(self.logging_output, 'upnp',
                                      f'{device_name} has been deleted'))
 
     async def test_faulty_device(self):
@@ -157,10 +153,9 @@ class ControlPoint(IsolatedAsyncioTestCase):
                         'udn': udn
                        }
         ssdp_alive = SSDP_NOTIFY.format(**ssdp_params)
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            control_point = await self._run_until_patch(
-                            [ssdp_alive, SSDP_ALIVE],
-                            setup=setup, patch_method='_create_root_device')
+        control_point = await self._run_until_patch(
+                        [ssdp_alive, SSDP_ALIVE],
+                        setup=setup, patch_method='_create_root_device')
 
         control_point._create_root_device.assert_called_once()
 
@@ -182,13 +177,12 @@ class ControlPoint(IsolatedAsyncioTestCase):
                         'udn': udn
                        }
         ssdp_alive = SSDP_NOTIFY.format(**ssdp_params)
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            control_point = await self._run_until_patch(
-                            [ssdp_alive, SSDP_ALIVE], setup=setup,
-                            patch_method='_create_root_device')
+        control_point = await self._run_until_patch(
+                        [ssdp_alive, SSDP_ALIVE], setup=setup,
+                        patch_method='_create_root_device')
 
         self.assertTrue(control_point.is_disabled(root_device))
-        self.assertTrue(find_in_logs(m_logs.output,
+        self.assertTrue(find_in_logs(self.logging_output,
             'upnp', f'Disable the {shorten(udn)} UPnP device permanently'))
 
     async def test_bad_max_age(self):
@@ -199,10 +193,9 @@ class ControlPoint(IsolatedAsyncioTestCase):
                         'udn': UDN
                        }
         ssdp_alive = SSDP_NOTIFY.format(**ssdp_params)
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await self._run_until_patch([ssdp_alive, SSDP_ALIVE])
+        await self._run_until_patch([ssdp_alive, SSDP_ALIVE])
 
-        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
             re.compile(f'Invalid CACHE-CONTROL field.*\n.*max-age={max_age}')))
 
     async def test_issue_50(self):
@@ -213,10 +206,9 @@ class ControlPoint(IsolatedAsyncioTestCase):
                        }
         ssdp_alive = SSDP_NOTIFY.format(**ssdp_params)
         ssdp_alive = ssdp_alive.replace('max-age=', 'max-age = ')
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await self._run_until_patch([ssdp_alive, SSDP_ALIVE,])
+        await self._run_until_patch([ssdp_alive, SSDP_ALIVE,])
 
-        self.assertFalse(search_in_logs(m_logs.output, 'upnp',
+        self.assertFalse(search_in_logs(self.logging_output, 'upnp',
             re.compile(f'Invalid CACHE-CONTROL field')))
 
     async def test_refresh(self):
@@ -226,10 +218,9 @@ class ControlPoint(IsolatedAsyncioTestCase):
                        }
         ssdp_alive_first = SSDP_NOTIFY.format(max_age=10, **ssdp_params)
         ssdp_alive_second = SSDP_NOTIFY.format(max_age=20, **ssdp_params)
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await self._run_until_patch([ssdp_alive_first, ssdp_alive_second])
+        await self._run_until_patch([ssdp_alive_first, ssdp_alive_second])
 
-        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
                             re.compile('Refresh with max-age=20')))
 
     async def test_close(self):
@@ -240,15 +231,14 @@ class ControlPoint(IsolatedAsyncioTestCase):
                     return True
 
         control_point = UPnPControlPoint(nics=['lo'], msearch_interval=3600)
-        with mock.patch.object(UPnPControlPoint, 'msearch_once') as msearch,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+        with mock.patch.object(UPnPControlPoint, 'msearch_once') as msearch:
             msearch.side_effect = OSError('FOO')
             control_point.open()
             await asyncio.wait_for(is_called(msearch), 1)
 
-        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
                                        re.compile(r"OSError\('FOO'\)")))
-        self.assertTrue(find_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(find_in_logs(self.logging_output, 'upnp',
                                      'Close UPnPControlPoint'))
 
     @bind_mcast_address()
@@ -257,8 +247,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
         # 'local_ipaddress' later through an SSDP msearch.
         header = { 'LOCATION': URL }
         control_point = UPnPControlPoint(nics=['lo'], msearch_interval=3600)
-        with mock.patch.object(control_point, '_put_notification'),\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+        with mock.patch.object(control_point, '_put_notification'):
             await start_http_server()
             # The SSDP notification.
             # Using '192.168.0.1' instead of HOST to prevent the root device
@@ -318,8 +307,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
             control_point = UPnPControlPoint(nics=['eth0'])
 
             header = { 'LOCATION': URL }
-            with mock.patch.object(control_point, '_put_notification'),\
-                    self.assertLogs(level=logging.DEBUG) as m_logs:
+            with mock.patch.object(control_point, '_put_notification'):
                 await start_http_server()
                 control_point._create_root_device(header, UDN, ip, True, ip)
 
@@ -335,10 +323,11 @@ class ControlPoint(IsolatedAsyncioTestCase):
                 self.assertTrue(UDN not in control_point._devices)
 
 @bind_mcast_address()
-class RootDevice(IsolatedAsyncioTestCase):
+class RootDevice(LoggingIsolatedAsyncioTestCase):
     """Root device test cases."""
 
     def setUp(self):
+        super().setUp()
         self.control_point = UPnPControlPoint(nics=['lo'],
                                               msearch_interval=3600)
         self.root_device = UPnPRootDevice(self.control_point, UDN, HOST, HOST,
@@ -346,42 +335,39 @@ class RootDevice(IsolatedAsyncioTestCase):
 
     async def test_OSError(self):
         exc = OSError('FOO')
-        with self.assertLogs(level=logging.DEBUG) as m_logs,\
-                mock.patch.object(self.root_device,
+        with mock.patch.object(self.root_device,
                                   '_parse_description') as parse:
             parse.side_effect = exc
             await start_http_server()
             await self.root_device._run()
 
-        self.assertTrue(find_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(find_in_logs(self.logging_output, 'upnp',
                                      f'UPnPRootDevice._run(): {exc!r}'))
-        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
             re.compile('Disable the UPnPRootDevice .* device permanently')))
 
     async def test_missing_device(self):
-        with mock.patch('pa_dlna.upnp.upnp.xml_of_subelement') as subelement,\
-                self.assertLogs(level=logging.INFO) as m_logs:
+        with mock.patch('pa_dlna.upnp.upnp.xml_of_subelement') as subelement:
             subelement.side_effect = [None]
             await start_http_server()
             await self.root_device._run()
 
-        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
                         re.compile("Missing 'device' subelement in root"
                                    ' device description')))
 
     async def test_age_device(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            # A max_age value of 0 means no aging. Set this value of 0.1 to
-            # pass the test.
-            max_age = 0.1
-            self.root_device = UPnPRootDevice(self.control_point, UDN, HOST,
-                                              HOST, URL, max_age)
-            await start_http_server()
-            await self.root_device._run()
+        # A max_age value of 0 means no aging. Set this value of 0.1 to
+        # pass the test.
+        max_age = 0.1
+        self.root_device = UPnPRootDevice(self.control_point, UDN, HOST,
+                                          HOST, URL, max_age)
+        await start_http_server()
+        await self.root_device._run()
 
-        self.assertTrue(find_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(find_in_logs(self.logging_output, 'upnp',
                         f'Aging expired on UPnPRootDevice {shorten(UDN)}'))
-        self.assertTrue(find_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(find_in_logs(self.logging_output, 'upnp',
                         f'UPnPRootDevice {shorten(UDN)} has been created'
                         f' with max-age={max_age}'))
 
@@ -395,8 +381,7 @@ class RootDevice(IsolatedAsyncioTestCase):
             </u:GetProtocolInfoResponse>
         """)
 
-        with mock.patch.object(self.root_device, '_age_root_device') as age,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+        with mock.patch.object(self.root_device, '_age_root_device') as age:
             # Make the UPnPRootDevice._run() coroutine terminate.
             age.side_effect = [None]
             await start_http_server(response)
@@ -411,8 +396,7 @@ class RootDevice(IsolatedAsyncioTestCase):
 
     async def test_soap_closed(self):
         with mock.patch.object(self.root_device, '_age_root_device') as age,\
-                self.assertRaises(UPnPClosedDeviceError) as cm,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+                self.assertRaises(UPnPClosedDeviceError) as cm:
             # Make the UPnPRootDevice._run() coroutine terminate.
             age.side_effect = [None]
             await start_http_server()
@@ -425,8 +409,7 @@ class RootDevice(IsolatedAsyncioTestCase):
     async def test_soap_fault(self):
         response = soap_fault()
         with mock.patch.object(self.root_device, '_age_root_device') as age,\
-                self.assertRaises(UPnPSoapFaultError) as cm,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+                self.assertRaises(UPnPSoapFaultError) as cm:
             # Make the UPnPRootDevice._run() coroutine terminate.
             age.side_effect = [None]
             await start_http_server(response)
@@ -458,8 +441,7 @@ class RootDevice(IsolatedAsyncioTestCase):
                            </iconList>"""
 
                 with mock.patch.object(
-                        self.root_device, '_age_root_device') as age,\
-                        self.assertLogs(level=logging.DEBUG) as m_logs:
+                        self.root_device, '_age_root_device') as age:
                     # Make the UPnPRootDevice._run() coroutine terminate.
                     age.side_effect = [None]
                     task = await start_http_server(icons=icons)
@@ -484,14 +466,13 @@ class RootDevice(IsolatedAsyncioTestCase):
                      </yamaha:icon>
                    </iconList>"""
 
-        with mock.patch.object(self.root_device, '_age_root_device') as age,\
-                self.assertLogs(level=logging.INFO) as m_logs:
+        with mock.patch.object(self.root_device, '_age_root_device') as age:
             # Make the UPnPRootDevice._run() coroutine terminate.
             age.side_effect = [None]
             await start_http_server(icons=icons)
             await self.root_device._run()
 
-        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
             re.compile("UPnPXMLError.*Found "
                 "'{urn:schemas-yamaha-com:device-1-0}icon' instead of"
                 " '{urn:schemas-upnp-org:device-1-0}icon'")))
@@ -506,14 +487,13 @@ class RootDevice(IsolatedAsyncioTestCase):
                      </icon>
                    </iconList>"""
 
-        with mock.patch.object(self.root_device, '_age_root_device') as age,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+        with mock.patch.object(self.root_device, '_age_root_device') as age:
             # Make the UPnPRootDevice._run() coroutine terminate.
             age.side_effect = [None]
             await start_http_server(icons=icons)
             await self.root_device._run()
 
-        self.assertTrue(search_in_logs(m_logs.output, 'upnp',
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
                     re.compile("Missing required subelement of 'icon' in"
                                " device description")))
 
@@ -542,8 +522,7 @@ class RootDevice(IsolatedAsyncioTestCase):
                                 </device>
                               </deviceList>"""
 
-                with mock.patch.object(self.root_device, '_age_root_device') as age,\
-                        self.assertLogs(level=logging.DEBUG) as m_logs:
+                with mock.patch.object(self.root_device, '_age_root_device') as age:
                     # Make the UPnPRootDevice._run() coroutine terminate.
                     age.side_effect = [None]
                     task = await start_http_server(devices=devices)
@@ -567,8 +546,7 @@ class RootDevice(IsolatedAsyncioTestCase):
         for devices in (empty_list, newline_list):
             with self.subTest(devices=devices):
                 with mock.patch.object(
-                            self.root_device, '_age_root_device') as age,\
-                        self.assertLogs(level=logging.DEBUG) as m_logs:
+                            self.root_device, '_age_root_device') as age:
                     # Make the UPnPRootDevice._run() coroutine terminate.
                     age.side_effect = [None]
                     task = await start_http_server(devices=devices)

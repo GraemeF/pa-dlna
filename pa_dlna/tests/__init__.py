@@ -1,3 +1,4 @@
+import sys
 import os
 import contextlib
 import logging
@@ -6,9 +7,12 @@ import unittest
 import functools
 import shutil
 import asyncio
+from logging import NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL
+from unittest import IsolatedAsyncioTestCase, TestCase
 
 from ..init import require_libpulse_version, MIN_LIBPULSE_VERSION
-from ..upnp.tests import load_ordered_tests, find_in_logs, search_in_logs
+from ..upnp.tests import (load_ordered_tests, find_in_logs, search_in_logs,
+                          RUNNING_ONLY_MATCHING_TESTS, setup_test_logging)
 
 def setUpModule():
     require_libpulse_version(MIN_LIBPULSE_VERSION)
@@ -52,17 +56,24 @@ async def skip_loop_iterations(count):
     for i in range(count):
         await asyncio.sleep(0)
 
-class BaseTestCase(unittest.TestCase):
+class BaseTestCase:
     def setUp(self):
+        # Set up logging.
+        self.test_loggers_stack = contextlib.ExitStack()
+        self.logging_output = self.test_loggers_stack.enter_context(
+                                        setup_test_logging(DEBUG, True))
+        self.addCleanup(self.test_loggers_stack.close)
+
+class LoggingIsolatedAsyncioTestCase(BaseTestCase, IsolatedAsyncioTestCase):
+    def setUp(self):
+        super().setUp()
+
+class LoggingTestCase(BaseTestCase, TestCase):
+    def setUp(self):
+        super().setUp()
+
         # Redirect stderr to os.devnull.
-        self.stack = contextlib.ExitStack()
-        f = self.stack.enter_context(open(os.devnull, 'w'))
-        self.stack.enter_context(contextlib.redirect_stderr(f))
-
-    def tearDown(self):
-        self.stack.close()
-
-        # Remove the root logger handler set up by init.setup_logging().
-        root = logging.getLogger()
-        for hdl in root.handlers:
-            root.removeHandler(hdl)
+        if not RUNNING_ONLY_MATCHING_TESTS:
+            f = self.test_loggers_stack.enter_context(open(os.devnull, 'w'))
+            self.test_loggers_stack.enter_context(
+                                            contextlib.redirect_stderr(f))

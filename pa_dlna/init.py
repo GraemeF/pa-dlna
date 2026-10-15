@@ -92,7 +92,13 @@ def setup_logging(options, default_loglevel):
         handler.setLevel(getattr(logging, loglevel.upper()))
 
     handler.setFormatter(formatter)
-    root.addHandler(handler)
+
+    # The two handlers added in this function conflict with the handlers added
+    # by the tests. But tests in pa_dlna.tests.test_init.Argv still need
+    # to test that function without emitting any log.
+    has_root_hdlers = (len(root.handlers) != 0)
+    if not has_root_hdlers:
+        root.addHandler(handler)
 
     if options['nolog_upnp']:
         logging.getLogger('upnp').addFilter(FilterDebug())
@@ -112,7 +118,8 @@ def setup_logging(options, default_loglevel):
             formatter = logging.Formatter(
                 fmt='%(asctime)s %(name)-7s %(levelname)-7s %(message)s')
             logfile_hdler.setFormatter(formatter)
-            root.addHandler(logfile_hdler)
+            if not has_root_hdlers:
+                root.addHandler(logfile_hdler)
             return logfile_hdler
 
     return None

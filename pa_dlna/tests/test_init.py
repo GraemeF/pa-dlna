@@ -20,7 +20,7 @@ from unittest import mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, BaseTestCase, setUpModule
+from . import requires_resources, LoggingTestCase, setUpModule
 from ..init import parse_args, padlna_main, UPnPApplication, disable_xonxoff
 from ..encoders import Encoder
 from ..config import user_config_pathname
@@ -39,7 +39,7 @@ def echo_xonxoff_array():
         sys.exit(1)
 
 @requires_resources('os.devnull')
-class Init(BaseTestCase):
+class Init(LoggingTestCase):
     def test_python_version(self):
         import sys
         import importlib
@@ -62,7 +62,7 @@ class Init(BaseTestCase):
 
     @requires_resources('pty')
     def test_disable_xonxoff(self):
-        """Spawn a process to test disable_xonxoff()."""
+        # Spawn a process to test disable_xonxoff().
 
         pid, master_fd = pty.fork()
         if pid == 0:
@@ -106,7 +106,7 @@ class Init(BaseTestCase):
                     f"libpulse version '{min_version}' .* required")
 
 @requires_resources('os.devnull')
-class Argv(BaseTestCase):
+class Argv(LoggingTestCase):
     """Command line tests."""
 
     def test_no_args(self):
@@ -254,7 +254,6 @@ class Argv(BaseTestCase):
     def test_failed_logfile(self):
         error_msg = 'Test cannot open logfile'
         with mock.patch('builtins.open', mock.mock_open()) as m_open,\
-                self.assertLogs(level=logging.ERROR) as m_logs,\
                 self.assertRaises(SystemExit) as cm:
             m_open.side_effect = OSError(error_msg)
             options, logfile_hdler = parse_args(
@@ -262,10 +261,10 @@ class Argv(BaseTestCase):
 
         self.assertEqual(cm.exception.args[0], 2)
         m_open.assert_called_once()
-        self.assertRegex(m_logs.output[-1], f'OSError.*{error_msg}')
+        self.assertRegex(self.logging_output[-1], f'OSError.*{error_msg}')
 
 @requires_resources('os.devnull')
-class Main(BaseTestCase):
+class Main(LoggingTestCase):
     """padlna_main() tests."""
 
     def test_main(self):
@@ -279,13 +278,12 @@ class Main(BaseTestCase):
         coro.return_value = exit_code
 
         with mock.patch('pa_dlna.init.UserConfig') as cfg,\
-                self.assertLogs() as logs,\
                 self.assertRaises(SystemExit) as cm:
             padlna_main(clazz, self.__doc__, argv=['pa-dlna'])
 
         self.assertEqual(cm.exception.args[0], exit_code)
         cfg.assert_called_once()
-        self.assertEqual(f'INFO:init:End of {app}', logs.output[-1])
+        self.assertEqual(f'INFO:init:End of {app}', self.logging_output[-1])
         app.run_control_point.assert_called_once()
         coro.assert_awaited()
 
@@ -293,14 +291,13 @@ class Main(BaseTestCase):
         clazz = mock.MagicMock()
         clazz.__name__ = 'AVControlPoint'
 
-        with self.assertLogs() as logs,\
-                mock.patch('builtins.open', mock.mock_open()) as m_open,\
+        with mock.patch('builtins.open', mock.mock_open()) as m_open,\
                 self.assertRaises(SystemExit) as cm:
             m_open.side_effect = PermissionError()
             padlna_main(clazz, self.__doc__, argv=['pa-dlna'])
 
         self.assertEqual(cm.exception.args[0], 1)
-        self.assertEqual(logs.output[-1], 'ERROR:init:PermissionError()')
+        self.assertEqual(self.logging_output[-1], 'ERROR:init:PermissionError()')
 
     def test_upnp_cmd(self):
         clazz = mock.MagicMock()
@@ -312,12 +309,11 @@ class Main(BaseTestCase):
         app.run_control_point = coro
         app.run.return_value = exit_code
 
-        with self.assertLogs() as logs,\
-                self.assertRaises(SystemExit) as cm:
+        with self.assertRaises(SystemExit) as cm:
             padlna_main(clazz, self.__doc__, argv=['upnp-cmd'])
 
         self.assertEqual(cm.exception.args[0], exit_code)
-        self.assertEqual(f'INFO:init:End of {app}', logs.output[-1])
+        self.assertEqual(f'INFO:init:End of {app}', self.logging_output[-1])
         app.run_control_point.assert_called_once()
         app.run.assert_called_once()
 

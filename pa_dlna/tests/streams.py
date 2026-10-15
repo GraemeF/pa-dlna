@@ -71,8 +71,7 @@ def set_control_point(control_point):
         m_open.side_effect = FileNotFoundError()
         control_point.config = UserConfig()
 
-async def play_track(mime_type, transactions, wait_for_completion=True,
-                     logs=None):
+async def play_track(mime_type, transactions, wait_for_completion, logs):
     if wait_for_completion:
         loop = asyncio.get_running_loop()
         completed = loop.create_future()
@@ -111,8 +110,7 @@ async def play_track(mime_type, transactions, wait_for_completion=True,
                 print(f'***** server.stage: {server.stage}', file=sys.stderr)
                 print(f'***** http_server.stage: {http_server.stage}',
                       file=sys.stderr)
-                if logs is not None:
-                    print('\n'.join(l for l in logs.output if
+                print('\n'.join(l for l in logs if
                                     ':asyncio:' not in l), file=sys.stderr)
                 raise
 

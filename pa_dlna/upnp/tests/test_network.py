@@ -7,15 +7,15 @@ import logging
 import socket
 from collections import namedtuple
 from ipaddress import IPv4Address
-from unittest import TestCase, IsolatedAsyncioTestCase, mock
+from unittest import mock
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
 from . import (find_in_logs, search_in_logs, loopback_datagrams, URL,
                MSEARCH_PORT, HOST, HTTP_PORT, SSDP_PARAMS, SSDP_NOTIFY,
-               SSDP_ALIVE, HTTPRequestHandler)
-from .. import TEST_LOGLEVEL
+               SSDP_ALIVE, HTTPRequestHandler, LoggingTestCase,
+               LoggingIsolatedAsyncioTestCase)
 from .. import network as network_module
 from ..network import (send_mcast, msearch, http_get, UPnPInvalidHttpError,
                        http_soap, Notify, ipaddr_from_nics, UPnPHttpError)
@@ -105,7 +105,7 @@ class HTTPServer:
             self.startup.set_result(None)
             await aio_server.serve_forever()
 
-class AddrFromNics(TestCase):
+class AddrFromNics(LoggingTestCase):
     """network.ipaddr_from_nics() tests."""
 
     def test_cfg_skip_loopback_true(self):
@@ -161,7 +161,7 @@ class AddrFromNics(TestCase):
             result = list(ipaddr_from_nics(['lo'], as_string=False))
             self.assertEqual(result, [IPv4Address('127.0.0.1')])
 
-class SSDP_notify(IsolatedAsyncioTestCase):
+class SSDP_notify(LoggingIsolatedAsyncioTestCase):
     """SSDP notify test cases.
 
     These tests use the fact that multicast datagrams sent to the loopback
@@ -169,35 +169,31 @@ class SSDP_notify(IsolatedAsyncioTestCase):
     """
 
     async def test_ssdp_notify(self):
-        with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            await loopback_datagrams([SSDP_ALIVE],
+        await loopback_datagrams([SSDP_ALIVE],
                                      patch_method='_create_root_device')
-
-        self.assertTrue(find_in_logs(m_logs.output, 'upnp', SSDP_ALIVE))
+        self.assertTrue(find_in_logs(self.logging_output, 'upnp', SSDP_ALIVE))
 
     async def test_membership_OSError(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            try:
-                notify = Notify(None, set())
-                notify.manage_membership(set(['256.0.0.0']))
-            finally:
-                notify.sock.close()
+        try:
+            notify = Notify(None, set())
+            notify.manage_membership(set(['256.0.0.0']))
+        finally:
+            notify.sock.close()
 
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
+        self.assertTrue(search_in_logs(self.logging_output, 'network',
             re.compile(r'256\.0\.0\.0 cannot be member of 239.255.255.250')))
 
     async def test_failed_memberships(self):
         try:
             ip = '127.0.0.1'
             notify = Notify(None, set())
-            with self.assertLogs(level=logging.DEBUG) as m_logs:
-                with mock.patch.object(notify, 'sock') as sock:
-                    sock.setsockopt.side_effect = OSError()
-                    notify.manage_membership(set([ip]))
-                    self.assertEqual(notify.failed_memberships, {ip})
-
+            with mock.patch.object(notify, 'sock') as sock:
+                sock.setsockopt.side_effect = OSError()
                 notify.manage_membership(set([ip]))
-                self.assertEqual(notify.failed_memberships, set())
+                self.assertEqual(notify.failed_memberships, {ip})
+
+            notify.manage_membership(set([ip]))
+            self.assertEqual(notify.failed_memberships, set())
         finally:
             notify.sock.close()
 
@@ -208,48 +204,45 @@ class SSDP_notify(IsolatedAsyncioTestCase):
             proc_ssdp.side_effect = OSError(err_msg)
 
         err_msg = 'Exception raised by _process_ssdp'
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            control_point = await loopback_datagrams([SSDP_ALIVE],
-                                                     setup=setup)
-            # Wait until completion of the notify task.
-            try:
-                for task in control_point._upnp_tasks:
-                    if task.get_name() == 'ssdp notify':
-                        break
-                else:
-                    raise AssertionError(f'SSDP notify task not found')
-                await asyncio.wait_for(task, 1)
-            except asyncio.CancelledError:
-                pass
-            except TimeoutError:
-                self.fail('Notify task did not terminate as expected')
+        control_point = await loopback_datagrams([SSDP_ALIVE],
+                                                 setup=setup)
+        # Wait until completion of the notify task.
+        try:
+            for task in control_point._upnp_tasks:
+                if task.get_name() == 'ssdp notify':
+                    break
+            else:
+                raise AssertionError(f'SSDP notify task not found')
+            await asyncio.wait_for(task, 1)
+        except asyncio.CancelledError:
+            pass
+        except TimeoutError:
+            self.fail('Notify task did not terminate as expected')
 
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
+        self.assertTrue(search_in_logs(self.logging_output, 'network',
                                        re.compile('on_con_lost.*done')))
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
+        self.assertTrue(search_in_logs(self.logging_output, 'network',
                                     re.compile(fr'OSError\({err_msg!r}\)')))
 
     async def test_invalid_field(self):
         field = 'invalid NTS field'
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await loopback_datagrams(
-                            [SSDP_NOTIFY.format(nts=field, **SSDP_PARAMS),
-                            SSDP_ALIVE], patch_method='_create_root_device')
+        await loopback_datagrams(
+                        [SSDP_NOTIFY.format(nts=field, **SSDP_PARAMS),
+                        SSDP_ALIVE], patch_method='_create_root_device')
 
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
+        self.assertTrue(search_in_logs(self.logging_output, 'network',
                             re.compile(f'malformed HTTP header:\n.*{field}')))
 
     async def test_no_NTS_field(self):
         not_nts = 'FOO: dummy field name'
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await loopback_datagrams(
-                            [SSDP_NOTIFY.format(nts=not_nts, **SSDP_PARAMS),
-                             SSDP_ALIVE], patch_method='_create_root_device')
+        await loopback_datagrams(
+                        [SSDP_NOTIFY.format(nts=not_nts, **SSDP_PARAMS),
+                         SSDP_ALIVE], patch_method='_create_root_device')
 
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
+        self.assertTrue(search_in_logs(self.logging_output, 'network',
                         re.compile(f'missing "NTS" field')))
 
-class SSDP_msearch(IsolatedAsyncioTestCase):
+class SSDP_msearch(LoggingIsolatedAsyncioTestCase):
     """SSDP msearch test cases."""
 
     @staticmethod
@@ -285,46 +278,40 @@ class SSDP_msearch(IsolatedAsyncioTestCase):
             await msearch(ip, protocol, msearch_count=1, msearch_interval=0,
                           mx=0)
 
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await loopback_datagrams(_msearch)
+        await loopback_datagrams(_msearch)
 
-        self.assertTrue(search_in_logs(m_logs.output, 'network', re.compile(
+        self.assertTrue(search_in_logs(self.logging_output, 'network', re.compile(
             r"Sent 1 M-SEARCH datagrams to \('239\.255\.255\.250', 1900\)")))
 
     async def test_ssdp_socket_msearch(self):
         coro = self._sendto_coro(MSEARCH_RESPONSE)
-        with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            await loopback_datagrams(coro,
-                                     patch_method='_create_root_device')
+        await loopback_datagrams(coro,
+                                 patch_method='_create_root_device')
 
-        self.assertTrue(find_in_logs(m_logs.output, 'upnp', MSEARCH_RESPONSE))
+        self.assertTrue(find_in_logs(self.logging_output, 'upnp', MSEARCH_RESPONSE))
 
     async def test_bad_start_line(self):
         coro = self._sendto_coro(NOT_FOUND)
-        with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            await loopback_datagrams(coro)
+        await loopback_datagrams(coro)
 
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
+        self.assertTrue(search_in_logs(self.logging_output, 'network',
                 re.compile(f"Ignore '{NOT_FOUND.splitlines()[0]}' request")))
 
     async def test_not_root_device(self):
         device = 'urn:schemas-upnp-org:device:MediaServer:1'
         st = f'ST: {device}'
         coro = self._sendto_coro(SSDP_MSEARCH.format(st=st))
-        with self.assertLogs(level=TEST_LOGLEVEL) as m_logs:
-            await loopback_datagrams(coro)
+        await loopback_datagrams(coro)
 
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
+        self.assertTrue(search_in_logs(self.logging_output, 'network',
                 re.compile(f"Ignore '{device}': non root device")))
 
     async def test_invalid_ip(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            await send_mcast('256.0.0.0', 0)
-
-        self.assertTrue(search_in_logs(m_logs.output, 'network',
+        await send_mcast('256.0.0.0', 0)
+        self.assertTrue(search_in_logs(self.logging_output, 'network',
                                 re.compile(r'Cannot bind.*256\.0\.0\.0')))
 
-class HttpQuery(IsolatedAsyncioTestCase):
+class HttpQuery(LoggingIsolatedAsyncioTestCase):
     """Http test cases."""
 
     @staticmethod
@@ -365,8 +352,7 @@ class HttpQuery(IsolatedAsyncioTestCase):
 
     async def test_zero_length(self):
         body = 'Some content.'
-        with self.assertLogs(level=logging.DEBUG) as m_logs, \
-                self.assertRaises(UPnPInvalidHttpError) as cm:
+        with self.assertRaises(UPnPInvalidHttpError) as cm:
             await self._loopback_get(body, content_length=0)
 
         self.assertIn("h11.RemoteProtocolError", cm.exception.args[0])
@@ -375,8 +361,7 @@ class HttpQuery(IsolatedAsyncioTestCase):
 
         body = 'Some content'
         timeout = 0.5
-        with self.assertLogs(level=logging.DEBUG) as m_logs, \
-                mock.patch.object(network_module, 'TIMEOUT', timeout), \
+        with mock.patch.object(network_module, 'TIMEOUT', timeout), \
                 self.assertRaises(UPnPHttpError) as cm:
             res= await self._loopback_get(body, wait_closed=True)
 
@@ -385,9 +370,7 @@ class HttpQuery(IsolatedAsyncioTestCase):
 
     async def test_empty_body(self):
         body = ''
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            body = await self._loopback_get(body)
-
+        body = await self._loopback_get(body)
         self.assertEqual(body, b'')
 
     async def test_bad_http_version(self):
@@ -399,8 +382,7 @@ class HttpQuery(IsolatedAsyncioTestCase):
         self.assertIn("http_version=b'2.0'", cm.exception.args[0])
 
     async def test_transfer_encoding(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs, \
-                self.assertRaises(UPnPInvalidHttpError) as cm:
+        with self.assertRaises(UPnPInvalidHttpError) as cm:
             body = 'Some content.'
             await self._loopback_get(body, transfer_encoding='deflate')
 
@@ -432,8 +414,7 @@ class HttpQuery(IsolatedAsyncioTestCase):
 
     async def test_chunked_body(self):
         body = '4\r\nabcd\r\n0\r\n\r\n'
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            body = await self._loopback_get(body, transfer_encoding='chunked')
+        body = await self._loopback_get(body, transfer_encoding='chunked')
         self.assertEqual(body, b'abcd')
 
 if __name__ == '__main__':

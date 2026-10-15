@@ -1,7 +1,13 @@
-Release history
-===============
+Release Notes
+=============
 
 Version 2.1
+    - Refactor the tests to print the logs when unittest or pytest is run with
+      option ``-k``. For example::
+
+        $ python -m unittest -v -k test_play_track_l16
+        $ pytest -o log_cli=true --log-cli-level=INFO -k test_play_track_l16
+
     - Add to gitlab CI/CD the tests streaming audio to ``upmpdcli``
       (`UPnP Audio Media Renderer based on MPD`_).
     - Fix AttributeError exception upon stopping a track and closing the DLNA

@@ -2,12 +2,11 @@
 
 import re
 import logging
-from unittest import TestCase
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import search_in_logs
+from . import search_in_logs, LoggingTestCase
 from .device_resps import (device_description, scpd, soap_response,
                            soap_fault)
 from ..xml import (xml_of_subelement, dict_to_xml, pformat_xml,
@@ -15,7 +14,7 @@ from ..xml import (xml_of_subelement, dict_to_xml, pformat_xml,
                    parse_soap_response, UPnPXMLError, parse_soap_fault,
                    UPnPNamespace)
 
-class XML(TestCase):
+class XML(LoggingTestCase):
     """XML test cases."""
 
     def test_subelement(self):
@@ -77,12 +76,11 @@ class XML(TestCase):
                           'dataType': 'string'},
                   }
 
-        with self.assertLogs(level=logging.WARNING) as m_logs:
-            etree, namespace = upnp_org_etree(
-                                        scpd(state_variable=state_variable))
-            service_states = scpd_servicestatetable(etree, namespace)
+        etree, namespace = upnp_org_etree(
+                                    scpd(state_variable=state_variable))
+        service_states = scpd_servicestatetable(etree, namespace)
 
-        self.assertTrue(search_in_logs(m_logs.output, 'xml',
+        self.assertTrue(search_in_logs(self.logging_output, 'xml',
             re.compile("<stateVariable> 'FOO'.*attribute.*not supported")))
         self.assertEqual(service_states, expect)
 

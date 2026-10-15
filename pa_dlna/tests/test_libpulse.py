@@ -4,12 +4,12 @@ import asyncio
 import logging
 import re
 import uuid
-from unittest import IsolatedAsyncioTestCase
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, search_in_logs
+from . import (requires_resources, search_in_logs,
+               LoggingIsolatedAsyncioTestCase)
 from ..pulseaudio import Pulse, NullSink
 
 logger = logging.getLogger('libpulse tests')
@@ -44,7 +44,7 @@ class ControlPoint:
         pass
 
 @requires_resources('libpulse')
-class LibPulseTests(IsolatedAsyncioTestCase):
+class LibPulseTests(LoggingIsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.control_point = ControlPoint()
@@ -76,45 +76,42 @@ class LibPulseTests(IsolatedAsyncioTestCase):
         return max_index + 10
 
     async def test_get_client(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            invalid_index = await self.get_invalid_index('client')
+        invalid_index = await self.get_invalid_index('client')
 
-            # Use an invalid client index.
-            sink_input = SinkInput(client=invalid_index)
-            client = await self.pulse.get_client(sink_input)
-            self.assertEqual(client, None)
+        # Use an invalid client index.
+        sink_input = SinkInput(client=invalid_index)
+        client = await self.pulse.get_client(sink_input)
+        self.assertEqual(client, None)
 
-        self.assertTrue(search_in_logs(m_logs.output, 'pulse',
-                                    re.compile(r'LibPulseOperationError')))
+        self.assertTrue(search_in_logs(self.logging_output,
+                            'pulse', re.compile(r'LibPulseOperationError')))
 
     async def test_move_sink_input(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            invalid_index = await self.get_invalid_index('sink_input')
+        invalid_index = await self.get_invalid_index('sink_input')
 
-            # Use an invalid sink_input index.
-            sink_input = SinkInput(index=invalid_index)
-            sink = Sink(index=0)
-            sink_input = await self.pulse.move_sink_input(sink_input, sink)
-            self.assertEqual(sink_input, None)
+        # Use an invalid sink_input index.
+        sink_input = SinkInput(index=invalid_index)
+        sink = Sink(index=0)
+        sink_input = await self.pulse.move_sink_input(sink_input, sink)
+        self.assertEqual(sink_input, None)
 
-        self.assertTrue(search_in_logs(m_logs.output, 'pulse',
-                                   re.compile(r'PA_OPERATION_RUNNING')))
+        self.assertTrue(search_in_logs(self.logging_output,
+                                'pulse', re.compile(r'PA_OPERATION_RUNNING')))
 
     async def test_get_renderer_sink(self):
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            # Use an invalid sink name.
-            sinks = await self.pulse.lib_pulse.pa_context_get_sink_info_list()
-            names = [sink.name for sink in sinks]
-            while True:
-                name = str(uuid.uuid4())
-                if name not in names:
-                    break
-            logger.debug(f'Sink name: {name}')
+        # Use an invalid sink name.
+        sinks = await self.pulse.lib_pulse.pa_context_get_sink_info_list()
+        names = [sink.name for sink in sinks]
+        while True:
+            name = str(uuid.uuid4())
+            if name not in names:
+                break
+        logger.debug(f'Sink name: {name}')
 
-            sink = Sink(name=name)
-            renderer = Renderer(sink)
-            sink = await self.pulse.get_renderer_sink(renderer)
-            self.assertEqual(sink, None)
+        sink = Sink(name=name)
+        renderer = Renderer(sink)
+        sink = await self.pulse.get_renderer_sink(renderer)
+        self.assertEqual(sink, None)
 
-        self.assertTrue(search_in_logs(m_logs.output, 'pulse',
-                                    re.compile(r'LibPulseOperationError')))
+        self.assertTrue(search_in_logs(self.logging_output,
+                            'pulse', re.compile(r'LibPulseOperationError')))

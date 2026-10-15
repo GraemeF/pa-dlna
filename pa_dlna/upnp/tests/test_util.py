@@ -3,13 +3,12 @@
 import asyncio
 import logging
 import re
-from unittest import TestCase
 from http import HTTPStatus
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import search_in_logs, HTTPRequestHandler
+from . import search_in_logs, HTTPRequestHandler, LoggingTestCase
 from ..network import http_get, UPnPInvalidHttpError
 from ..util import shorten, log_unhandled_exception, AsyncioTasks
 
@@ -55,7 +54,7 @@ class HTTPServer:
             if self.exception:
                 raise self.exception
 
-class Util(TestCase):
+class Util(LoggingTestCase):
     """Util test cases."""
 
     @staticmethod
@@ -77,11 +76,10 @@ class Util(TestCase):
                                  expected)
 
     def test_log_unhandled_exception(self):
-        with self.assertRaises(UPnPInvalidHttpError),\
-                self.assertLogs(level=logging.ERROR) as m_logs:
+        with self.assertRaises(UPnPInvalidHttpError):
             asyncio.run(self._loopback_get('foo', OSError()))
 
-        self.assertTrue(search_in_logs(m_logs.output, 'test',
+        self.assertTrue(search_in_logs(self.logging_output, 'test',
             re.compile(r'Exception .* HTTPServer.run\(\):\n *OSError')))
 
     def test_asyncio_tasks(self):
@@ -97,11 +95,10 @@ class Util(TestCase):
 
     def test_http_logs(self):
         message = 'Le temps des cerises'
-        with self.assertRaises(UPnPInvalidHttpError),\
-                self.assertLogs(level=logging.ERROR) as m_logs:
+        with self.assertRaises(UPnPInvalidHttpError):
             asyncio.run(self._loopback_get(message))
 
-        self.assertTrue(search_in_logs(m_logs.output, 'tests',
+        self.assertTrue(search_in_logs(self.logging_output, 'tests',
                                        re.compile(message)))
 
 if __name__ == '__main__':

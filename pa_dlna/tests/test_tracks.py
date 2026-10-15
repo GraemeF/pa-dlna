@@ -9,7 +9,6 @@ import subprocess
 from textwrap import dedent
 from signal import SIGINT, SIGTERM
 from contextlib import asynccontextmanager, AsyncExitStack
-from unittest import IsolatedAsyncioTestCase
 try:
     from libpulse import libpulse
 except ImportError:
@@ -18,7 +17,7 @@ except ImportError:
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources
+from . import requires_resources, LoggingIsolatedAsyncioTestCase
 from ..init import parse_args
 from ..config import UserConfig
 from ..pa_dlna import AVControlPoint, ISSUE_48_TIMER
@@ -26,32 +25,8 @@ from ..pa_dlna import AVControlPoint, ISSUE_48_TIMER
 import logging
 logger = logging.getLogger('track')
 
-DEBUG = 0
 RENDERER_TIMEOUT = 5
 DEFAULT_ENCODER = 'L16Encoder'
-
-def setup_logging():
-
-    class FilterDebug:
-        def filter(self, record):
-            """Ignore DEBUG logging messages."""
-            if record.levelno != logging.DEBUG:
-                return True
-
-    root = logging.getLogger()
-    handler = logging.StreamHandler()
-    handler.setLevel(logging.DEBUG)
-    formatter = logging.Formatter(fmt='%(name)-7s %(levelname)-7s %(message)s')
-    handler.setFormatter(formatter)
-    root.addHandler(handler)
-
-    # Ignore DEBUG logging messages from the following loggers.
-    logging.getLogger('upnp').addFilter(FilterDebug())
-    logging.getLogger('network').addFilter(FilterDebug())
-    logging.getLogger('asyncio').addFilter(FilterDebug())
-
-if DEBUG:
-    setup_logging()
 
 # Courtesy of https://espressif-docs.readthedocs-hosted.com/projects/esp-adf/
 # en/latest/design-guide/audio-samples.html.
@@ -412,7 +387,7 @@ class UpmpdcliMpd:
         await self.close()
 
 @requires_resources(('libpulse', 'ffmpeg', 'upmpdcli', 'mpd'))
-class PlayTracks(IsolatedAsyncioTestCase):
+class PlayTracks(LoggingIsolatedAsyncioTestCase):
 
     async def play_track(self, upmpdcli):
 

@@ -1,4 +1,5 @@
 import sys
+import os
 import socket
 import asyncio
 import unittest
@@ -6,13 +7,18 @@ import inspect
 import io
 import pprint
 import http.server
-from unittest import mock
+import contextlib
+from logging import NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL
+from unittest import IsolatedAsyncioTestCase, TestCase, mock
 
 import logging
 logger = logging.getLogger('tests')
 
+from .. import TEST_LOGLEVEL
 from ..upnp import UPnPControlPoint
 from ..network import MCAST_ADDR
+
+RUNNING_ONLY_MATCHING_TESTS = any(arg == '-k' for arg in sys.argv[1:])
 
 MSEARCH_PORT = 9999
 SSDP_NOTIFY = '\r\n'.join([
@@ -109,7 +115,7 @@ async def loopback_datagrams(datagrams, patch_method=None, setup=None):
 
     async def is_called(mock):
         while True:
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.1)
             if mock.called:
                 return True
 
@@ -185,3 +191,73 @@ class HTTPRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def do_HEAD(self):
         self.log_request('HEAD')
+
+@contextlib.contextmanager
+def setup_test_logging(log_level, nolog_upnp):
+
+    class CapturingHandler(logging.Handler):
+        """Logging handler capturing logging output."""
+
+        def __init__(self):
+            super().__init__()
+            self.output = []
+
+        def emit(self, record):
+            msg = self.format(record)
+            self.output.append(msg)
+
+    for name in ('upnp', 'network', 'asyncio'):
+        logger = logging.getLogger(name)
+        logger.setLevel(NOTSET)
+
+    logging.getLogger('asyncio').setLevel(ERROR)
+    if nolog_upnp:
+        logging.getLogger('upnp').setLevel(INFO)
+        logging.getLogger('network').setLevel(INFO)
+
+    root = logging.getLogger()
+    root.setLevel(log_level)
+
+    # Set up the sys.stderr handler when testing matching tests.
+    stderr_hdler = None
+    if RUNNING_ONLY_MATCHING_TESTS:
+        stderr_hdler = logging.StreamHandler()
+        formatter = logging.Formatter(
+                        fmt='%(name)-7s %(levelname)-7s %(message)s')
+        stderr_hdler.setFormatter(formatter)
+        root.addHandler(stderr_hdler)
+
+    # Set up the capturing handler.
+    capturing_hdler = CapturingHandler()
+    formatter = logging.Formatter(fmt="%(levelname)s:%(name)s:%(message)s")
+    capturing_hdler.setFormatter(formatter)
+    root.addHandler(capturing_hdler)
+
+    yield capturing_hdler.output
+
+    # Remove the root logger handlers.
+    if stderr_hdler is not None:
+        root.removeHandler(stderr_hdler)
+    root.removeHandler(capturing_hdler)
+
+class BaseTestCase:
+    def setUp(self):
+        # Set up logging.
+        self.test_loggers_stack = contextlib.ExitStack()
+        self.logging_output = self.test_loggers_stack.enter_context(
+                                setup_test_logging(TEST_LOGLEVEL, False))
+        self.addCleanup(self.test_loggers_stack.close)
+
+class LoggingIsolatedAsyncioTestCase(BaseTestCase, IsolatedAsyncioTestCase):
+    def setUp(self):
+        super().setUp()
+
+class LoggingTestCase(BaseTestCase, TestCase):
+    def setUp(self):
+        super().setUp()
+
+        # Redirect stderr to os.devnull.
+        if not RUNNING_ONLY_MATCHING_TESTS:
+            f = self.test_loggers_stack.enter_context(open(os.devnull, 'w'))
+            self.test_loggers_stack.enter_context(
+                                            contextlib.redirect_stderr(f))

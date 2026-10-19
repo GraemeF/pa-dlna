@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import contextlib
 import logging
 import subprocess
@@ -67,6 +68,13 @@ class BaseTestCase:
 class LoggingIsolatedAsyncioTestCase(BaseTestCase, IsolatedAsyncioTestCase):
     def setUp(self):
         super().setUp()
+
+    async def has_error_in_logs(self, logger, error_msg):
+        regexp = re.compile(error_msg)
+        while True:
+            if search_in_logs(self.logging_output, logger, regexp):
+                return regexp
+            await asyncio.sleep(0.1)
 
 class LoggingTestCase(BaseTestCase, TestCase):
     def setUp(self):

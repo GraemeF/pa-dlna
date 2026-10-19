@@ -525,14 +525,18 @@ class PatchSoapActionTests(LoggingIsolatedAsyncioTestCase):
             result = await self.patch_soap_action('remove', ctx,
                                                     transport_state='PLAYING')
             ctx.renderer.nullsink.sink_input.index = 1000
-            await asyncio.sleep(1)
 
+            try:
+                regexp = await asyncio.wait_for(
+                                        self.has_error_in_logs('pa-dlna',
+                                       "'remove ignored' .* index 1000"), 1)
+            except TimeoutError:
+                regexp = None
+
+        self.assertTrue(regexp is not None)
         self.assertEqual(len(result), 0)
         self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
             re.compile(f"'remove' pulse event .* index {index}")))
-        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
-            re.compile(
-                "'remove ignored' .* index 1000")))
 
     async def test_exit_metadata(self):
         ctx = PulseEventContext(prev_sink_input_index=0)

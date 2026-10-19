@@ -2,16 +2,14 @@ Release Notes
 =============
 
 Version 2.1
+    - Close the HTTP connection to the DLNA device after sending the HTTP error
+      response to a bad HTTP request.
     - Fix the error incorrectly logged by H11Wrapper.send() after the track has
       been closed by the music player (issue #69).
-    - Refactor the tests to print the logs when unittest or pytest is run with
-      option ``-k``. For example::
-
-        $ python -m unittest -v -k test_play_track_l16
-        $ pytest -o log_cli=true --log-cli-level=INFO -k test_play_track_l16
-
-    - Add to gitlab CI/CD the tests streaming audio to ``upmpdcli``
-      (`UPnP Audio Media Renderer based on MPD`_).
+    - Refactor the tests to print the logs when unittest is run with option
+      ``-k``.
+    - Add to gitlab CI/CD the tests that are streaming audio to ``upmpdcli``
+      (`UPnP Audio Media Renderer based on MPD`_) and MPD.
     - Fix AttributeError exception upon stopping a track and closing the DLNA
       device simultaneously (issue #66).
 

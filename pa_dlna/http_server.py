@@ -607,6 +607,7 @@ class HTTPServer:
             if (type(event) is not h11.Request or
                     event.method not in (b'GET', b'HEAD')):
                 await self.send_error_response(HTTPStatus.BAD_REQUEST)
+                await h11_wrapper.shutdown_and_clean_up()
                 return
 
             renderer = await self.match_renderer(event)
@@ -614,7 +615,8 @@ class HTTPServer:
                 # Ok, handle the request.
                 await self.send_http_ok(renderer)
                 await renderer.stream_sessions.start_track(h11_wrapper)
-                return
+            else:
+                await h11_wrapper.shutdown_and_clean_up()
 
         except Exception as e:
             logger.error(f'HTTPServer.client_connected(): {e!r}')
@@ -633,7 +635,7 @@ class HTTPServer:
         task_name = asyncio.current_task().get_name()
         try:
             aio_server = await asyncio.start_server(self.client_connected,
-                                                    self.ip_address, self.port)
+                                                self.ip_address, self.port)
             addrs = ', '.join(str(sock.getsockname())
                               for sock in aio_server.sockets)
             logger.info(f'{task_name} serve HTTP requests on {addrs}')

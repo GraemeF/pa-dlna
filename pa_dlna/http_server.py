@@ -107,8 +107,6 @@ class Track:
 
             if data:
                 h11_state = self.h11_wrapper.conn.our_state
-                assert h11_state is h11.SEND_BODY, \
-                    f'Expecting SEND_BODY but our state is {h11_state}'
                 await self.h11_wrapper.send(h11.Data(data=data))
 
             if not data or partial_data:
@@ -425,12 +423,15 @@ class H11Wrapper:
         try:
             self.writer.write(data)
             await self.writer.drain()
-        except (ConnectionError, asyncio.CancelledError):
+        except (ConnectionError, asyncio.CancelledError) as e:
             # We have no choice but to give it up.
             self.conn.send_failed()
-            logger.error(f'H11Wrapper.send() failure, '
-                         f'our_state: {self.conn.our_state} - '
-                         f'writer.is_closing: {self.writer.is_closing()}')
+            if isinstance(e, ConnectionError):
+                logger.error(f'H11Wrapper.send(): {e!r}\n'
+                             f'        our_state: {self.conn.our_state} - '
+                             f'writer.is_closing: {self.writer.is_closing()}')
+            else:
+                logger.debug(f'H11Wrapper.send() got CancelledError')
             raise
 
     async def _read_from_peer(self):
@@ -595,9 +596,9 @@ class HTTPServer:
         h11_wrapper = H11Wrapper(reader, writer)
         self.h11_wrapper = h11_wrapper
         h11_wrapper.info('Got new connection')
-        assert h11_wrapper.conn.states == {h11.CLIENT: h11.IDLE, h11.SERVER: h11.IDLE}
+        assert h11_wrapper.conn.states == {h11.CLIENT: h11.IDLE,
+                                           h11.SERVER: h11.IDLE}
 
-        do_close = True
         try:
             self.h11_wrapper.info('Server main loop waiting for request')
             event = await asyncio.wait_for(h11_wrapper.next_event(), TIMEOUT)
@@ -613,19 +614,19 @@ class HTTPServer:
                 # Ok, handle the request.
                 await self.send_http_ok(renderer)
                 await renderer.stream_sessions.start_track(h11_wrapper)
-                do_close = False
                 return
 
-        except Exception as exc:
-            h11_wrapper.info(f'Error during response handler: {exc!r}')
-            if isinstance(exc, h11.RemoteProtocolError):
-                status_code = exc.error_status_hint
-            else:
-                status_code = 500
-            await self.send_error_response(status_code, str(exc))
-        finally:
-            if do_close:
-                await h11_wrapper.shutdown_and_clean_up()
+        except Exception as e:
+            logger.error(f'HTTPServer.client_connected(): {e!r}')
+            if not isinstance(e, ConnectionError):
+                try:
+                    if isinstance(e, h11.RemoteProtocolError):
+                        status_code = e.error_status_hint
+                    else:
+                        status_code = 500
+                    await self.send_error_response(status_code, str(e))
+                finally:
+                    await h11_wrapper.shutdown_and_clean_up()
 
     @log_unhandled_exception(logger)
     async def run(self):

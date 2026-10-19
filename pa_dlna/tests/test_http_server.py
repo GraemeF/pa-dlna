@@ -2,7 +2,6 @@
 
 import re
 import asyncio
-import logging
 import h11
 from http import HTTPStatus
 from unittest import mock
@@ -47,9 +46,16 @@ class PlayTrackTests(LoggingIsolatedAsyncioTestCase):
     """Playing a track test cases."""
 
     async def play_track(self, mime_type, transactions,
-                                        wait_for_completion=True):
+                    wait_for_completion=True, skip_wait_unixserver=False):
         return await play_track(mime_type, transactions, wait_for_completion,
-                                                        self.logging_output)
+                                self.logging_output, skip_wait_unixserver)
+
+    async def has_error(self, error_msg):
+        regexp = re.compile(error_msg)
+        while True:
+            if regexp.search('\n'.join(self.logging_output)):
+                return regexp
+            await asyncio.sleep(0.1)
 
     async def test_play_mp3(self):
         transactions = ['ignore', 16 * BLKSIZE]
@@ -214,6 +220,47 @@ class PlayTrackTests(LoggingIsolatedAsyncioTestCase):
 
         self.assertTrue(find_in_logs(self.logging_output, 'http',
                         f'{task_name}: Got CancelledError at Track shutdown'))
+
+    async def test_h11_send_exception(self):
+
+        async def next_event(h11_wrapper):
+            # Create the context manager.
+            ctx_mgr_write = mock.patch.object(h11_wrapper.writer, 'write')
+
+            # Start the context manager to yield a MagicMock.
+            mock_write = ctx_mgr_write.start()
+            mock_write.side_effect = exception
+            return await _next_event(h11_wrapper)
+
+        _next_event = H11Wrapper.next_event
+        ctx_mgr_write = None
+
+        for item in (
+                (asyncio.CancelledError,
+                                r'H11Wrapper.send\(\) got CancelledError'),
+                (ConnectionError, r'H11Wrapper.send\(\): ConnectionError'),
+                          ):
+            with self.subTest(item=item):
+                exception, error_msg = item
+                with mock.patch.object(H11Wrapper, 'next_event', next_event):
+                    # Play the track with no encoder.
+                    mime_type = 'audio/l16;rate=44100;channels=2'
+                    transactions = ['ignore', BLKSIZE]
+                    curl_task, http_server = await self.play_track(mime_type,
+                                    transactions, skip_wait_unixserver=True)
+
+                    try:
+                        regexp = await asyncio.wait_for(
+                                                self.has_error(error_msg), 1)
+                    except TimeoutError:
+                        regexp = None
+
+                if ctx_mgr_write is not None:
+                    ctx_mgr_write.stop()
+
+                http_server.close()
+                curl_task.cancel()
+                self.assertTrue(regexp is not None)
 
 @requires_resources('curl')
 class HTTPServerTests(LoggingIsolatedAsyncioTestCase):

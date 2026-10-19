@@ -2,6 +2,8 @@ Release Notes
 =============
 
 Version 2.1
+    - Fix the error incorrectly logged by H11Wrapper.send() after the track has
+      been closed by the music player (issue #69).
     - Refactor the tests to print the logs when unittest or pytest is run with
       option ``-k``. For example::
 

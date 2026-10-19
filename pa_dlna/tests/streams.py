@@ -45,11 +45,17 @@ async def run_curl(url, http_version='http1.1', extra_args=None):
     if extra_args is not None:
         curl_cmd.extend(extra_args)
     curl_cmd.append(url)
-    proc = await asyncio.create_subprocess_exec(*curl_cmd,
+    try:
+        proc = await asyncio.create_subprocess_exec(*curl_cmd,
                                           stdin=asyncio.subprocess.DEVNULL,
                                           stdout=asyncio.subprocess.PIPE,
                                           stderr=asyncio.subprocess.PIPE)
-    stdout, stderr = await proc.communicate()
+        stdout, stderr = await proc.communicate()
+    except asyncio.CancelledError:
+        proc.terminate()
+        await proc.wait()
+        return
+
     if stderr and 0:
         print(f'CURL stderr: {stderr.decode().strip()}')
     return proc.returncode, len(stdout.decode())
@@ -71,7 +77,8 @@ def set_control_point(control_point):
         m_open.side_effect = FileNotFoundError()
         control_point.config = UserConfig()
 
-async def play_track(mime_type, transactions, wait_for_completion, logs):
+async def play_track(mime_type, transactions, wait_for_completion, logs,
+                                                skip_wait_unixserver):
     if wait_for_completion:
         loop = asyncio.get_running_loop()
         completed = loop.create_future()
@@ -100,6 +107,9 @@ async def play_track(mime_type, transactions, wait_for_completion, logs):
         await server.ready_fut
         curl_task = asyncio.create_task(run_curl(renderer.current_uri),
                                         name='curl')
+
+        if skip_wait_unixserver:
+            return curl_task, http_server
 
         # Wait for the last chunk of data to be written to the pipe read by
         # Track.write_track().
@@ -184,7 +194,12 @@ class UnixSocketServer:
 class _HTTPServer(HTTPServer):
     def __init__(self, control_point, ip_address, port):
         super().__init__(control_point, ip_address, port)
+        self.aio_server = None
         self.stage = 'init'
+
+    def close(self):
+        if self.aio_server is not None:
+            self.aio_server.close()
 
     async def client_connected(self, reader, writer):
         self.stage = 'connected'
@@ -197,6 +212,7 @@ class _HTTPServer(HTTPServer):
         try:
             aio_server = await asyncio.start_server(self.client_connected,
                                                 self.ip_address, self.port)
+            self.aio_server = aio_server
             async with aio_server:
                 self.startup.set_result(True)
                 await aio_server.serve_forever()

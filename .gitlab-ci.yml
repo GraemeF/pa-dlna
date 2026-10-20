@@ -12,12 +12,16 @@ default:
 
     before_script:
         - apt-get update -yq && apt-get install -yq curl ffmpeg pulseaudio-utils
-        - python --version
         - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install psutil libpulse h11
+        - useradd -m -s /bin/bash padlna
+        - /bin/find $CI_PROJECT_DIR -exec chown padlna:padlna {} \;
+        - su padlna -c "python --version"
 
 .pulseaudio: &pulseaudio
     - apt-get update -yq && apt-get install -yq pulseaudio
-    - pulseaudio --verbose --daemonize=yes
+    - su padlna -c "pulseaudio --verbose --daemonize=yes"
+    - sleep 1
+    - su padlna -c "pactl info"
 
 .pipewire: &pipewire
     - apt-get update -yq && apt-get install -yq xvfb
@@ -41,12 +45,12 @@ default:
     - apt-get update -yq && apt-get install -yq mpd
 
 .unittest-scripts: &unittest-scripts
-    - python -m unittest --verbose --failfast
+    - su padlna -c "python -m unittest --verbose --failfast"
 
 .coverage-scripts: &coverage-scripts
     - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install coverage
-    - python -m coverage run --include="./*" -m unittest
-    - python -m coverage report --show-missing
+    - su padlna -c "python -m coverage run --include="./*" -m unittest"
+    - su padlna -c "python -m coverage report --show-missing"
 
 pipwire-tests:
     image: python:3.14
@@ -55,7 +59,7 @@ pipwire-tests:
         - *pipewire
         - sleep 1
         - pactl info
-        - *unittest-scripts
+        - python -m unittest --verbose --failfast
 
 py311:
     image: python:3.11

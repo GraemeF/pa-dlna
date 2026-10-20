@@ -43,7 +43,7 @@ class ControlPoint:
     async def dispatch_event(self, event):
         pass
 
-@requires_resources('libpulse')
+@requires_resources('pulseaudio or pipewire')
 class LibPulseTests(LoggingIsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):

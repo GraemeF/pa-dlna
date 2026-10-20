@@ -8,8 +8,6 @@ Version 2.1
       been closed by the music player (issue #69).
     - Refactor the tests to print the logs when unittest is run with option
       ``-k``.
-    - Add to gitlab CI/CD the tests that are streaming audio to ``upmpdcli``
-      (`UPnP Audio Media Renderer based on MPD`_) and MPD.
     - Fix AttributeError exception upon stopping a track and closing the DLNA
       device simultaneously (issue #66).
 
@@ -237,8 +235,6 @@ Version 0.1
 .. _`error handling changes`:
    https://libpulse.readthedocs.io/en/stable/history.html
 .. _h11: https://pypi.org/project/h11/
-.. _`UPnP Audio Media Renderer based on MPD`:
-   https://www.lesbonscomptes.com/upmpdcli/
 
 .. rubric:: Footnotes
 

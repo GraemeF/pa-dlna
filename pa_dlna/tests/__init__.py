@@ -39,7 +39,7 @@ def requires_resources(resources):
                 path = shutil.which(res)
                 if path is None:
                     raise Exception
-            elif res == 'libpulse':
+            elif res == 'pulseaudio or pipewire':
                 # Check that pulseaudio or pipewire-pulse is running.
                 subprocess.run(['pactl', 'info'], stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL, check=True)

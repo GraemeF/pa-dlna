@@ -30,8 +30,8 @@ default:
       pipewire-pulse &
       wireplumber &
 
-# Install upmdcli and mpd.
-.upmdcli-mpd: &upmdcli-mpd
+# Install upmpdcli and mpd.
+.upmpdcli-mpd: &upmpdcli-mpd
     - mkdir -p /usr/share/keyrings
     - curl --output-dir /usr/share/keyrings
       -O https://www.lesbonscomptes.com/pages/lesbonscomptes.gpg
@@ -82,8 +82,9 @@ py314:
     image: python:3.14
     stage: test
     script:
+# Skip upmpdcli (downloading is unreliable)
+#       - *upmpdcli-mpd
         - *pulseaudio
-        - *upmdcli-mpd
         - *unittest-scripts
         - *coverage-scripts
     coverage: '/TOTAL.* (100\%|\d?\d\%)$/'

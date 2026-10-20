@@ -386,7 +386,7 @@ class UpmpdcliMpd:
     async def __aexit__(self, exc_type, exc_value, traceback):
         await self.close()
 
-@requires_resources(('libpulse', 'ffmpeg', 'upmpdcli', 'mpd'))
+@requires_resources(('pulseaudio or pipewire', 'ffmpeg', 'upmpdcli', 'mpd'))
 class PlayTracks(LoggingIsolatedAsyncioTestCase):
 
     async def play_track(self, upmpdcli):

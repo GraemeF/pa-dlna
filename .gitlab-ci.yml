@@ -2,6 +2,9 @@
 # https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Python.gitlab-ci.yml
 
 variables:
+    PIP_BREAK_SYSTEM_PACKAGES: "1"
+    PIP_ROOT_USER_ACTION: "ignore"
+
     # Change pip's cache directory to be inside the project directory.
     PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
@@ -12,9 +15,11 @@ default:
 
     before_script:
         - apt-get update -yq && apt-get install -yq curl ffmpeg pulseaudio-utils
-        - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install psutil libpulse h11
         - useradd -m -s /bin/bash padlna
-        - /bin/find $CI_PROJECT_DIR -exec chown padlna:padlna {} \;
+        - /bin/find $CI_PROJECT_DIR -path $CI_PROJECT_DIR/.cache -prune -o
+          -exec chown padlna:padlna {} \;
+        - chown root:root $CI_PROJECT_DIR
+        - python -m pip install psutil libpulse h11
         - su padlna -c "python --version"
 
 .pulseaudio: &pulseaudio
@@ -48,7 +53,7 @@ default:
     - su padlna -c "python -m unittest --verbose --failfast"
 
 .coverage-scripts: &coverage-scripts
-    - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install coverage
+    - python -m pip install coverage
     - su padlna -c "python -m coverage run --include="./*" -m unittest"
     - su padlna -c "python -m coverage report --show-missing"
 

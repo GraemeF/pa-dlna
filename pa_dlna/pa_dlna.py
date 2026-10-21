@@ -699,7 +699,8 @@ class AVControlPoint(UPnPApplication):
             if self.pulse is not None:
                 await self.pulse.close()
 
-            if self.curtask != asyncio.current_task():
+            if (self.curtask is not None and
+                    self.curtask != asyncio.current_task()):
                 self.curtask.cancel(msg)
 
     def abort(self, msg):

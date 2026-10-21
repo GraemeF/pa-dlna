@@ -24,14 +24,22 @@ TIMEOUT = 10
 SERVER_HEADER = h11.PRODUCT_ID.encode('ascii')
 
 async def kill_process(process):
-    try:
+    async def process_wait():
         try:
+            await asyncio.wait_for(process.wait(), timeout=1.0)
+            return True
+        except TimeoutError:
+            pass
+
+    try:
+        if process.returncode is not None:
+            await process_wait()
+        else:
             # First try with SIGTERM.
             process.terminate()
-            await asyncio.wait_for(process.wait(), timeout=1.0)
-        except TimeoutError:
-            process.kill()
-            await asyncio.wait_for(process.wait(), timeout=1.0)
+            if not await process_wait():
+                process.kill()
+                await process_wait()
     except ProcessLookupError as e:
         logger.debug(f"Ignoring exception: '{e!r}'")
 

@@ -55,6 +55,7 @@ class Pulse:
         self.av_control_point = av_control_point
         self.clients_uuids = av_control_point.clients_uuids
         self.applications = av_control_point.applications
+        self.curtask = None         # task running Pulse.run()
         self.closing = False
         self.lib_pulse = None
         self.pa_dlna_clients_count = None
@@ -65,6 +66,11 @@ class Pulse:
             self.closing = True
             logger.info('Close pulse')
             await self.av_control_point.close()
+
+            if (self.curtask is not None and
+                    self.curtask != asyncio.current_task()):
+                logger.debug('Pulse instance being cancelled')
+                self.curtask.cancel()
 
     async def get_sink_by_module(self, renderer, module_index, module_name):
         """Get the sink matching a renderer from 'module_index'."""
@@ -318,6 +324,8 @@ class Pulse:
 
     @log_unhandled_exception(logger)
     async def run(self):
+        self.curtask = asyncio.current_task()
+
         try:
             async with LibPulse('pa-dlna') as self.lib_pulse:
                 # Only one instance of pa-dlna is allowed to run.
@@ -344,6 +352,8 @@ class Pulse:
                 if test_end is not None:
                     await test_end
 
+        except asyncio.CancelledError:
+            logger.debug('Pulse instance got CancelledError')
         except LibPulseError as e:
             logger.error(f'{e!r}')
         finally:

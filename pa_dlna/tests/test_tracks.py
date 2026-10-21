@@ -5,9 +5,8 @@ import time
 import asyncio
 import tempfile
 import pathlib
-import subprocess
+import warnings
 from textwrap import dedent
-from signal import SIGINT, SIGTERM
 from contextlib import asynccontextmanager, AsyncExitStack
 try:
     from libpulse import libpulse
@@ -92,12 +91,13 @@ async def create_config_home(encoder, sink_name):
 async def run_control_point(config_home, loglevel):
     async def cp_connected():
         # Wait for the connection to LibPulse.
-        while cp.pulse is None or cp.pulse.pa_dlna_clients_count is None:
+        while (control_point.pulse is None or
+               control_point.pulse.pa_dlna_clients_count is None):
             await asyncio.sleep(0)
-        if cp.pulse.pa_dlna_clients_count > 1:
+        if control_point.pulse.pa_dlna_clients_count > 1:
             raise TrackRuntimeError('a pa-dlna instance is already running')
         logger.debug('Connected to libpulse')
-        return  cp
+        return  control_point
 
     argv = ['--nics', 'lo', '--loglevel', loglevel]
     options, _ = parse_args('pa-dlna sample tests', argv=argv)
@@ -108,8 +108,8 @@ async def run_control_point(config_home, loglevel):
     try:
         os.environ.update({'XDG_CONFIG_HOME': config_home})
         config = UserConfig()
-        cp = AVControlPoint(config=config, **options)
-        asyncio.create_task(cp.run_control_point())
+        control_point = AVControlPoint(config=config, **options)
+        asyncio.create_task(control_point.run_control_point())
     finally:
         os.environ.clear()
         os.environ.update(_environ)
@@ -119,26 +119,25 @@ async def run_control_point(config_home, loglevel):
     except TimeoutError:
         raise TrackRuntimeError('Cannot connect to libpulse') from None
     finally:
-        await cp.close()
+        await control_point.close()
+        logger.info('Control Point closed')
 
-async def proc_terminate(proc, signal=None, timeout=0.2):
-    async def _terminate(funcname, delay):
-        start = time.monotonic()
-        if funcname == 'send_signal':
-            proc.send_signal(signal)
-        else:
-            getattr(proc, funcname)()
-        await asyncio.sleep(0)
-        while proc.returncode is None and time.monotonic() - start < delay:
-            await asyncio.sleep(0)
+async def proc_terminate(process):
+    async def process_wait():
+        try:
+            await asyncio.wait_for(process.wait(), timeout=1.0)
+            return True
+        except TimeoutError:
+            pass
 
-    if proc.returncode is None:
-        if signal is not None:
-            await _terminate('send_signal', timeout)
-        else:
-            await _terminate('terminate', timeout)
-        if proc.returncode is None:
-            await _terminate('kill', 0)
+    if process.returncode is not None:
+        await process_wait()
+    else:
+        # First try with SIGTERM.
+        process.terminate()
+        if not await process_wait():
+            process.kill()
+            await process_wait()
 
 @asynccontextmanager
 async def proc_run(cmd, *args, env=None):
@@ -159,20 +158,21 @@ async def proc_run(cmd, *args, env=None):
 
     yield proc
 
-    if cmd == 'upmpdcli':
-        await proc_terminate(proc, signal=SIGINT)
-    else:
+    try:
         await proc_terminate(proc)
-    await proc.wait()
+    except ProcessLookupError as e:
+        logger.debug(f'[{cmd!r} got {e!r}]')
 
     if logger.getEffectiveLevel() == logging.DEBUG:
         logger.debug(f'[{cmd!r} exited with {proc.returncode}]')
-        stdout = await proc.stdout.read()
-        if stdout:
-            logger.debug(f'[stdout]\n{stdout.decode()}')
-        stderr += await proc.stderr.read()
-        if stderr:
-            logger.debug(f'[stderr]\n{stderr.decode()}')
+
+        if 0:
+            stdout = await proc.stdout.read()
+            if stdout:
+                logger.debug(f'[stdout]\n{stdout.decode()}')
+            stderr += await proc.stderr.read()
+            if stderr:
+                logger.debug(f'[stderr]\n{stderr.decode()}')
 
 class UpmpdcliMpd:
     """Set up the environment to play tracks with upmpdcli and mpd.
@@ -201,32 +201,11 @@ class UpmpdcliMpd:
         self.curtask = asyncio.current_task()
         self.exit_stack = AsyncExitStack()
 
-    async def shutdown(self, end_event):
-        # Run by the 'shutdown' task.
-        await end_event.wait()
-        await self.close('Got SIGINT or SIGTERM')
-
     async def close(self, msg=None):
         if self.closed:
             return
-
         self.closed = True
-        try:
-            # Close the UPnP control point to avoid annoying logs from the
-            # _ssdp_notify task.
-            # This will close the AVControlPoint instance.
-            if (self.control_point is not None and
-                    self.control_point.upnp_control_point is not None):
-                self.control_point.upnp_control_point.close()
-
-            await self.exit_stack.aclose()
-        finally:
-            if self.curtask != asyncio.current_task():
-                self.curtask.cancel(msg)
-
-            loop = asyncio.get_running_loop()
-            for sig in (SIGINT, SIGTERM):
-                loop.remove_signal_handler(sig)
+        await self.exit_stack.aclose()
 
     @asynccontextmanager
     async def create_sink(self):
@@ -345,14 +324,6 @@ class UpmpdcliMpd:
             self.control_point = await self.exit_stack.enter_async_context(
                                     run_control_point(config_home,
                                                         self.loglevel))
-            # Add the signal handlers (overridding the AVControlPoint
-            # signal handlers).
-            end_event = asyncio.Event()
-            asyncio.create_task(self.shutdown(end_event), name='shutdown')
-            loop = asyncio.get_running_loop()
-            for sig in (SIGINT, SIGTERM):
-                loop.add_signal_handler(sig, end_event.set)
-
             self.lib_pulse = self.control_point.pulse.lib_pulse
             logger.debug(f"XDG_CONFIG_HOME is '{config_home}'")
 
@@ -388,6 +359,12 @@ class UpmpdcliMpd:
 
 @requires_resources(('pulseaudio or pipewire', 'ffmpeg', 'upmpdcli', 'mpd'))
 class PlayTracks(LoggingIsolatedAsyncioTestCase):
+
+    def setUp(self):
+        super().setUp()
+        warnings.simplefilter('ignore', category=ResourceWarning)
+        self.addCleanup(warnings.simplefilter,
+                            'default', category=ResourceWarning)
 
     async def play_track(self, upmpdcli):
 

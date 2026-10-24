@@ -13,9 +13,9 @@ from unittest import mock
 from . import load_ordered_tests as load_tests
 
 from . import find_in_logs, search_in_logs, LoggingIsolatedAsyncioTestCase
-from .streams import set_control_point as _set_control_point
-from .libpulse import use_libpulse_stubs, LibPulse
-from .libpulse import SinkInput as LibPulseSinkInput
+from .stubs.pa_dlna import set_control_point as _set_control_point
+from .stubs.libpulse import use_libpulse_stubs, LibPulse
+from .stubs.libpulse import SinkInput as LibPulseSinkInput
 from ..init import ControlPointAbortError
 from ..encoders import Encoder
 from ..upnp.upnp import (UPnPRootDevice, QUEUE_CLOSED, UPnPControlPoint,

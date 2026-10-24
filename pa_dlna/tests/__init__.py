@@ -51,12 +51,6 @@ def requires_resources(resources):
     else:
         return _id
 
-async def skip_loop_iterations(count):
-    """Skip 'count' loop iterations (cost: few msecs)."""
-
-    for i in range(count):
-        await asyncio.sleep(0)
-
 class BaseTestCase:
     def setUp(self):
         # Set up logging.

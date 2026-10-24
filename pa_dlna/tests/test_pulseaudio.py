@@ -11,11 +11,15 @@ from unittest import mock
 from . import load_ordered_tests as load_tests
 
 from . import find_in_logs, search_in_logs, LoggingIsolatedAsyncioTestCase
-from .streams import pulseaudio, pa_dlna
-from .libpulse import (SinkInput, Event, LibPulseClosedError, LibPulse,
-                       LibPulseError, PA_SUBSCRIPTION_MASK_SINK_INPUT,
-                       PA_INVALID_INDEX)
+from .stubs.libpulse import (SinkInput, Event, LibPulseClosedError, LibPulse,
+                             LibPulseError, PA_SUBSCRIPTION_MASK_SINK_INPUT,
+                             PA_INVALID_INDEX, use_libpulse_stubs)
 from ..pa_dlna import ControlPointAbortError
+
+# Use the patched pulseaudio and pa_dlna modules to avoid importing libpulse
+# that is not required for running the test.
+with use_libpulse_stubs(['pa_dlna.pulseaudio', 'pa_dlna.pa_dlna']) as modules:
+    pulseaudio, pa_dlna = modules
 
 class Renderer(pa_dlna.DLNATestDevice):
     def __init__(self, control_point, mime_type, results=None):

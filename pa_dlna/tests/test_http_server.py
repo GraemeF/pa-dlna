@@ -13,8 +13,9 @@ from . import load_ordered_tests as load_tests
 
 from . import (requires_resources, find_in_logs, search_in_logs,
                LoggingIsolatedAsyncioTestCase)
-from .streams import (BLKSIZE, run_curl, new_renderer, play_track, Renderer,
-                      ControlPoint)
+from .stubs.streams import run_curl, play_track
+from .stubs.parec_proc import BLKSIZE
+from .stubs.pa_dlna import new_renderer, Renderer, ControlPoint
 from ..encoders import FFMpegEncoder, L16Encoder
 from ..http_server import HTTPServer, Track, H11Wrapper
 
@@ -67,7 +68,7 @@ class PlayTrackTests(LoggingIsolatedAsyncioTestCase):
         # Issue #5:
         # 'The parec command line length keeps increasing at each new track'.
         self.assertEqual(renderer.control_point.parec_cmd,
-                         ControlPoint().parec_cmd)
+                         ControlPoint().parec_cmd + ['None'])
 
     async def test_play_aiff(self):
         transactions = ['ignore', 16 * BLKSIZE]

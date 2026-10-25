@@ -29,12 +29,9 @@ default:
     - su padlna -c "pactl info"
 
 .pipewire: &pipewire
-    - apt-get update -yq && apt-get install -yq xvfb
-      pipewire wireplumber pipewire-pulse
+    - apt-get update -yq && apt-get install -yq pipewire wireplumber pipewire-pulse
     - |
       export 'XDG_RUNTIME_DIR=/tmp'
-      export 'DISPLAY=:0.0'
-      Xvfb -screen $DISPLAY 1920x1080x24 &
       pipewire &
       pipewire-pulse &
       wireplumber &

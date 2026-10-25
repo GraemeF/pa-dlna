@@ -4,22 +4,31 @@
 # Note that these steps must be repeated after each change in pa-dlna
 # source code.
 #
-# Build an image, run the following command at the root of the repository:
+# To build an image, run the following command at the root of the repository:
+#
 #   $ sudo /usr/bin/docker build --file=Dockerfile.pipewire --tag=pa-dlna-pipewire .
 #
-# And start a container to run the test suite:
+# And start a container:
+#
 #   $ sudo /usr/bin/docker run -it pa-dlna-pipewire
-# Or:
-#   $ sudo /usr/bin/docker run -p 4000:80 pa-dlna-pipewire
+#
+# Then within the container run the test suite with the command:
+#
+#   $ source tools/docker-pipewire.sh
+#
+# Note that you must rebuild the image if you modify the
+# 'tools/docker-pipewire.sh' script.
 
-FROM debian:latest
+FROM python:3.15
 
-RUN apt-get update -yq && apt-get install -yq python3-psutil procps
+RUN apt-get update -yq && apt-get install -yq procps
 RUN apt-get update -yq && apt-get install -yq curl ffmpeg
 RUN apt-get update -yq && apt-get install -yq pulseaudio-utils
 RUN apt-get update -yq && apt-get install -yq xvfb
 RUN apt-get update -yq && apt-get install -yq pipewire wireplumber pipewire-pulse
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install libpulse h11 psutil
 
 COPY . /root
 WORKDIR /root
-ENTRYPOINT [ "/bin/bash", "tools/docker-pipewire.sh" ]
+
+ENTRYPOINT [ "/bin/bash" ]

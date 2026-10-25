@@ -2,21 +2,16 @@
 # Start pipewire-pulse and run the test suite.
 
 export XDG_RUNTIME_DIR=/tmp
-pipewire &
+pipewire 2>/dev/null &
 echo "*** pipewire started"
 
-pipewire-pulse &
+pipewire-pulse 2>/dev/null &
 echo "*** pipewire-pulse started"
 
-# wireplumber needs an X11 server.
-export DISPLAY=:0.0
-Xvfb -screen $DISPLAY 1920x1080x24 &
-echo "*** Xvfb started"
-
-wireplumber &
+wireplumber 2>/dev/null &
 echo "*** wireplumber started"
 
 sleep 1
 pw-cli help
 pactl info
-python3 -m unittest --verbose --failfast
+python -m unittest --verbose --failfast

@@ -4,25 +4,27 @@
 # Note that these steps must be repeated after each change in pa-dlna
 # source code.
 #
-# Build an image and run the test suite by running the following command at
+# To build an image and run the test suite, run the following command at
 # the root of the repository:
+#
 #   $ sudo /usr/bin/docker build --file=Dockerfile.pulse --tag=pa-dlna-pulse .
 #
-# Then optionaly run /bin/bash interactively in a container, start pulseaudio
-# (possibly twice, see last comment below) and run the test suite or maybe
-# only some tests.
+# And start a container to run /bin/bash interactively.
+# Start pulseaudio (possibly twice, see last comment below) and
+# run the test suite or maybe some other tests.
+#
 #   $ sudo /usr/bin/docker run -it pa-dlna-pulse
 #
 ################################################################################
 
-FROM python:3.14
+FROM python:3.15
 
 RUN apt-get update -yq && apt-get install -yq procps curl ffmpeg
 RUN apt-get update -yq && apt-get install -yq pulseaudio pulseaudio-utils
 RUN PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install libpulse h11 psutil \
     coverage
 
-# Install upmdcli
+# Install upmdcli for debian-trixie
 RUN mkdir -p /usr/share/keyrings
 RUN curl --output-dir /usr/share/keyrings \
     -O https://www.lesbonscomptes.com/pages/lesbonscomptes.gpg

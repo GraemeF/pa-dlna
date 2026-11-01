@@ -292,7 +292,7 @@ class UpmpdcliMpd:
                                                     RENDERER_TIMEOUT)
         except TimeoutError:
             try:
-                state = await renderer.get_transport_state()
+                state = await self.renderer.get_transport_state()
                 logger.error(f"TimeoutError: renderer state is '{state}'"
                              f" after {RENDERER_TIMEOUT} seconds")
                 raise
@@ -369,6 +369,7 @@ class PlayTracks(LoggingIsolatedAsyncioTestCase):
     async def play_track(self, upmpdcli):
 
         cancelled = False
+        track_proc = None
         try:
             track_proc = await upmpdcli.start_track(TRACK_PATH)
 
@@ -382,7 +383,8 @@ class PlayTracks(LoggingIsolatedAsyncioTestCase):
             logger.info(f'Got {e!r}')
             cancelled = True
         finally:
-            await upmpdcli.stop_track(track_proc)
+            if track_proc is not None:
+                await upmpdcli.stop_track(track_proc)
             if cancelled:
                 self.fail('The test has been cancelled')
 

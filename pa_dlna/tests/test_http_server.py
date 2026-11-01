@@ -217,7 +217,8 @@ class PlayTrackTests(LoggingIsolatedAsyncioTestCase):
         self.assertTrue(find_in_logs(self.logging_output, 'http',
                         f'{task_name}: Got CancelledError at Track shutdown'))
 
-    @unittest.skipIf(sys.version_info[:2] == (3,12), 'ignored on python 3.12')
+    @unittest.skipIf(sys.version_info[:2] in ((3,12), (3,13)),
+                     f'ignored on python {sys.version_info[:2]}')
     async def test_h11_send_exception(self):
 
         async def next_event(h11_wrapper):

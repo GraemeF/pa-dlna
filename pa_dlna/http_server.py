@@ -212,6 +212,7 @@ class StreamProcesses:
 
         except Exception as e:
             log_exception(logger, f'{e!r}')
+            raise
 
     async def get_stream_reader(self):
         """Get the stdout pipe of the last process."""
@@ -345,6 +346,7 @@ class StreamProcesses:
         except Exception as e:
             log_exception(logger, f'{e!r}')
             await self.close(disable=True)
+            raise
 
 class StreamSessions:
     """Handle multiple tracks.
@@ -637,6 +639,7 @@ class HTTPServer:
                     await self.send_error_response(status_code, str(e))
                 finally:
                     await h11_wrapper.shutdown_and_clean_up()
+            raise
 
     @log_unhandled_exception(logger)
     async def run(self):

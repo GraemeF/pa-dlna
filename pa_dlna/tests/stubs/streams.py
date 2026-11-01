@@ -49,10 +49,11 @@ async def run_curl(url, http_version='http1.1', extra_args=None):
                                           stderr=asyncio.subprocess.PIPE)
         stdout, stderr = await proc.communicate()
     except asyncio.CancelledError:
-        if proc is not None:
+        raise
+    finally:
+        if proc is not None and proc.returncode is None:
             proc.terminate()
             await proc.wait()
-        return None, None
 
     return proc.returncode, len(stdout.decode())
 

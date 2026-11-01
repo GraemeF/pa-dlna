@@ -1,33 +1,59 @@
 # syntax=docker/dockerfile:1
 #
 # Docker file to run the test suite with *pipewire*.
-# Note that these steps must be repeated after each change in pa-dlna
-# source code.
 #
-# To build an image, run the following command at the root of the repository:
+# To build the image, run the following command at the root of the repository:
 #
 #   $ sudo /usr/bin/docker build --file=Dockerfile.pipewire --tag=pa-dlna-pipewire .
 #
-# And start a container:
+# To run a container:
 #
-#   $ sudo /usr/bin/docker run -it pa-dlna-pipewire
-#
-# Then within the container run the test suite with the command:
-#
-#   $ source tools/docker-pipewire.sh
-#
-# Note that you must rebuild the image if you modify the
-# 'tools/docker-pipewire.sh' script.
+#   a) Using the gitlab repository (add '-i' to the command to enter a bash session).
 
-FROM python:3.15
+#       $ sudo /usr/bin/docker run -it pa-dlna-pipewire
 
-RUN apt-get update -yq && apt-get install -yq procps
-RUN apt-get update -yq && apt-get install -yq curl ffmpeg
-RUN apt-get update -yq && apt-get install -yq pulseaudio-utils
-RUN apt-get update -yq && apt-get install -yq pipewire wireplumber pipewire-pulse
-RUN PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install libpulse h11 psutil
+#   b) Using the local repository (with $(pwd) being the root of the repository).
 
-COPY . /root
+#       $ sudo /usr/bin/docker run -e DOCKER_ENV=local -v $(pwd):/mnt/shared pa-dlna-pipewire
+
+FROM debian:trixie
+
+RUN apt-get update -yq && apt-get install -yq \
+    git \
+    python3 \
+    python3-coverage
+
+RUN apt-get update -yq && apt-get install -yq \
+    pulseaudio-utils \
+    curl
+
+RUN apt-get update -yq && apt-get install -yq \
+    python3-h11 \
+    python3-psutil \
+    python3-libpulse
+
+# Install upmpdcli
+RUN mkdir -p /usr/share/keyrings
+RUN curl --output-dir /usr/share/keyrings \
+    -O https://www.lesbonscomptes.com/pages/lesbonscomptes.gpg
+RUN curl --output-dir /etc/apt/sources.list.d/ \
+    -O https://www.lesbonscomptes.com/upmpdcli/pages/upmpdcli-trixie.sources
+RUN apt-get update -yq && apt-get install -yq upmpdcli
+
+# ffmpeg and mpd use a common subset of libraries.
+RUN apt-get update -yq && apt-get install -yq --no-install-recommends ffmpeg
+RUN apt-get update -yq && apt-get install -yq --no-install-recommends mpd
+
+# Install pipewire
+RUN apt-get update -yq && apt-get install -yq \
+    pipewire \
+    wireplumber \
+    pipewire-pulse
+
+ENV NO_COLOR=1
+
 WORKDIR /root
+COPY tools tools/
 
 ENTRYPOINT [ "/bin/bash" ]
+CMD [ "tools/docker-pipewire.sh" ]

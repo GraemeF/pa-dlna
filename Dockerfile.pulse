@@ -24,7 +24,7 @@ RUN apt-get update -yq && apt-get install -yq pulseaudio pulseaudio-utils
 RUN PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install libpulse h11 psutil \
     coverage
 
-# Install upmdcli for debian-trixie
+RUN echo "Install upmdcli for debian-trixie"
 RUN mkdir -p /usr/share/keyrings
 RUN curl --output-dir /usr/share/keyrings \
     -O https://www.lesbonscomptes.com/pages/lesbonscomptes.gpg
@@ -46,9 +46,15 @@ RUN /bin/find /pa-dlna -exec chown padlna:root {} \;
 USER padlna
 WORKDIR /pa-dlna
 
+# Insert the cache-busting argument here.
+# This allows the next layers to be rebuilt and avoid using the cache.
+ARG CACHEBUST=1
+
 RUN pulseaudio --verbose --daemonize=yes && \
+    python -m unittest --verbose --catch --failfast && \
     python -m coverage run --include=./* -m unittest && \
-    python -m coverage report -m
+    python -m coverage report -m && \
+    sleep 5
 
 # For some reason, when run interactively, starting the pulseaudio daemon
 # may fail the first time and succeed the next.

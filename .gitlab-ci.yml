@@ -58,7 +58,7 @@ py314:
 # Image based on debian:trixie including Python 3.13.
 # Running pipewire and streaming tracks on upmpdcli/mpd.
 pipewire-upmpdcli:
-    image: pipewire-upmpdcli
+    image: $CI_REGISTRY_IMAGE/pipewire-upmpdcli:latest
     stage: test
     script:
         - ./tools/docker-pipewire.sh

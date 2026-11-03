@@ -37,4 +37,4 @@ python3 -m unittest --verbose --failfast
 
 echo; echo "*** Running coverage"
 python3 -m coverage run --include=./* -m unittest
-python3 -m coverage report -m
+python3 -m coverage report --show-missing

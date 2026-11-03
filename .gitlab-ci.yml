@@ -13,14 +13,14 @@ default:
         paths:
             - .cache/pip
 
-    before_script:
-        - apt-get update -yq && apt-get install -yq curl ffmpeg pulseaudio-utils
-        - useradd -m -s /bin/bash padlna
-        - /bin/find $CI_PROJECT_DIR -path $CI_PROJECT_DIR/.cache -prune -o
-          -exec chown padlna:padlna {} \;
-        - chown root:root $CI_PROJECT_DIR
-        - python -m pip install psutil libpulse h11
-        - su padlna -c "python --version"
+.init-script: &init-script
+    - apt-get update -yq && apt-get install -yq curl ffmpeg pulseaudio-utils
+    - useradd -m -s /bin/bash padlna
+    - /bin/find $CI_PROJECT_DIR -path $CI_PROJECT_DIR/.cache -prune -o
+      -exec chown padlna:padlna {} \;
+    - chown root:root $CI_PROJECT_DIR
+    - python -m pip install psutil libpulse h11
+    - su padlna -c "python --version"
 
 .pulseaudio: &pulseaudio
     - apt-get update -yq && apt-get install -yq pulseaudio
@@ -28,45 +28,14 @@ default:
     - sleep 1
     - su padlna -c "pactl info"
 
-.pipewire: &pipewire
-    - apt-get update -yq && apt-get install -yq pipewire wireplumber pipewire-pulse
-    - |
-      export 'XDG_RUNTIME_DIR=/tmp'
-      pipewire &
-      pipewire-pulse &
-      wireplumber &
-
-# Install upmpdcli and mpd.
-.upmpdcli-mpd: &upmpdcli-mpd
-    - mkdir -p /usr/share/keyrings
-    - curl --output-dir /usr/share/keyrings
-      -O https://www.lesbonscomptes.com/pages/lesbonscomptes.gpg
-    - curl --output-dir /etc/apt/sources.list.d/
-      -O https://www.lesbonscomptes.com/upmpdcli/pages/upmpdcli-trixie.sources
-    - apt-get update -yq && apt-get install -yq upmpdcli
-    - apt-get update -yq && apt-get install -yq mpd
-
 .unittest-scripts: &unittest-scripts
     - su padlna -c "python -m unittest --verbose --failfast"
-
-.coverage-scripts: &coverage-scripts
-    - python -m pip install coverage
-    - su padlna -c "python -m coverage run --include="./*" -m unittest"
-    - su padlna -c "python -m coverage report --show-missing"
-
-pipwire-tests:
-    image: python:3.14
-    stage: test
-    script:
-        - *pipewire
-        - sleep 1
-        - pactl info
-        - python -m unittest --verbose --failfast
 
 py311:
     image: python:3.11
     stage: test
     script:
+        - *init-script
         - *pulseaudio
         - *unittest-scripts
 
@@ -74,13 +43,7 @@ py312:
     image: python:3.12
     stage: test
     script:
-        - *pulseaudio
-        - *unittest-scripts
-
-py313:
-    image: python:3.13
-    stage: test
-    script:
+        - *init-script
         - *pulseaudio
         - *unittest-scripts
 
@@ -88,9 +51,20 @@ py314:
     image: python:3.14
     stage: test
     script:
-# Skip upmpdcli (downloading is unreliable)
-#       - *upmpdcli-mpd
+        - *init-script
         - *pulseaudio
         - *unittest-scripts
-        - *coverage-scripts
+
+# Image based on debian:trixie including Python 3.13.
+# Running pipewire and streaming tracks on upmpdcli/mpd.
+pipewire-upmpdcli:
+    image: pipewire-upmpdcli
+    stage: test
+    script:
+        - ./tools/docker-pipewire.sh
+    rules:
+      - if: $CI_COMMIT_BRANCH == "master"
+        allow_failure: false
+      - if: $CI_COMMIT_BRANCH != "master"
+        allow_failure: true   # Failures allowed on feature branches
     coverage: '/TOTAL.* (100\%|\d?\d\%)$/'

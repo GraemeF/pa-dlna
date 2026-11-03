@@ -8,7 +8,7 @@
 #
 # To run a container:
 #
-#   a) Using the gitlab repository (add '-i' to the command to enter a bash session).
+#   a) Using the gitlab repository (add '/bin/bash -i' to the command to enter a bash session).
 
 #       $ sudo /usr/bin/docker run -it pa-dlna-pipewire
 
@@ -55,5 +55,5 @@ ENV NO_COLOR=1
 WORKDIR /root
 COPY tools tools/
 
-ENTRYPOINT [ "/bin/bash" ]
-CMD [ "tools/docker-pipewire.sh" ]
+ENTRYPOINT [ "" ]
+CMD [ "/bin/bash", "tools/docker-pipewire.sh" ]

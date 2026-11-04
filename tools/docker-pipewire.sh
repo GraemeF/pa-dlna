@@ -1,18 +1,5 @@
 #! /bin/bash
-# Start pipewire-pulse and run the test suite.
-#
-# IMPORTANT:
-#   Rebuild the docker image whenever there is a change in this file.
-
-if [ "$DOCKER_ENV" = "local" ]; then \
-        echo "Cloning pa-dlna from the current directory" && \
-        cp -r /mnt/shared/ pa-dlna; \
-    else \
-        echo "Cloning pa-dlna from gitlab" && \
-        git clone -b master --single-branch --depth 1 https://gitlab.com/xdegaye/pa-dlna.git; \
-    fi
-
-cd pa-dlna
+# Start pipewire and run the test suite.
 
 export XDG_RUNTIME_DIR=/tmp
 echo "Starting pipewire"

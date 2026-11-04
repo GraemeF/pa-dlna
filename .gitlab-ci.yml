@@ -61,6 +61,7 @@ pipewire-upmpdcli:
     image: $CI_REGISTRY_IMAGE/pipewire-upmpdcli:latest
     stage: test
     script:
+        - cd $CI_PROJECT_DIR
         - source ./tools/docker-pipewire.sh
     rules:
       - if: $CI_COMMIT_BRANCH == "master"

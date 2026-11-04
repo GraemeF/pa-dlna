@@ -1,20 +1,14 @@
 # syntax=docker/dockerfile:1
 #
-# Docker file to run the test suite with *pipewire*.
+# Docker file with python 3.13, pipewire and upmpdcli-pmd.
 #
-# To build the image, run the following command at the root of the repository:
+# Build the image:
 #
 #   $ sudo /usr/bin/docker build --file=Dockerfile.pipewire --tag=pa-dlna-pipewire .
 #
-# To run a container:
+# Run a container locally in the root directory of the git repository:
 #
-#   a) Using the gitlab repository (add '/bin/bash -i' to the command to enter a bash session).
-
-#       $ sudo /usr/bin/docker run -it pa-dlna-pipewire
-
-#   b) Using the local repository (with $(pwd) being the root of the repository).
-
-#       $ sudo /usr/bin/docker run -e DOCKER_ENV=local -v $(pwd):/mnt/shared pa-dlna-pipewire
+#   $ sudo /usr/bin/docker run --mount type=bind,src=$(pwd),dst=/root/pa-dlna pa-dlna-pipewire
 
 FROM debian:trixie
 
@@ -52,8 +46,8 @@ RUN apt-get update -yq && apt-get install -yq \
 
 ENV NO_COLOR=1
 
-WORKDIR /root
-COPY tools tools/
+RUN mkdir -p /root/pa-dlna
+WORKDIR /root/pa-dlna
 
 ENTRYPOINT [ "" ]
 CMD [ "/bin/bash", "tools/docker-pipewire.sh" ]

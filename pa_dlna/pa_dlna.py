@@ -489,6 +489,16 @@ class Renderer:
             self.log_pulse_event('remove ignored', sink_input)
             return
 
+        # Another sink-input may still stream to the null-sink, such as
+        # music outliving a short notification sound.
+        remaining = await self.control_point.pulse.get_sink_input(self)
+        if remaining is not None:
+            logger.info(f"Streaming '{remaining.name}' on {self.name}"
+                        f' after the end of sink-input index {index}')
+            self.nullsink.sink_input = remaining
+            self.previous_idx = None
+            return
+
         self.nullsink.sink_input = None
 
         # Let the HTTP 1.1 chunked transfer encoding handles the closing of

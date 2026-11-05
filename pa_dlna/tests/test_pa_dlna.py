@@ -521,6 +521,31 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
             re.compile(
                 "'Closing-Stop' UPnP action .* device prev state: PLAYING")))
 
+    async def test_remove_event_other_sink_input(self):
+        # A short sound ends while music is still playing into the same
+        # null-sink: streaming carries on with the music.
+        index = 999
+        ctx = PulseEventContext(prev_sink_input_index=index)
+        ctx.renderer.nullsink.sink.index = 7
+        music = LibPulseSinkInput('music', [])
+        music.sink = 7
+        LibPulse.sink_inputs.append(music)
+        ctx.renderer.previous_idx = music.index
+
+        with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 0):
+            result, logs = await self.patch_soap_action('remove', ctx,
+                                                    timeout=0.2,
+                                                    transport_state='PLAYING')
+
+        self.assertEqual(len(result), 0)
+        self.assertIs(ctx.renderer.nullsink.sink_input, music)
+        self.assertEqual(ctx.renderer.previous_idx, None)
+        self.assertFalse(search_in_logs(logs.output, 'pa-dlna',
+            re.compile("'Closing-Stop' UPnP action")))
+        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+            re.compile(f"Streaming 'music' on .* after the end of"
+                       f" sink-input index {index}")))
+
     async def test_ignore_remove_event(self):
         index = 999
         ctx = PulseEventContext(prev_sink_input_index=index)

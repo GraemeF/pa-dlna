@@ -497,6 +497,9 @@ class Renderer:
                         f' after the end of sink-input index {index}')
             self.nullsink.sink_input = remaining
             self.previous_idx = None
+            # Otherwise the newer index of the ended sink-input makes the
+            # end of 'remaining' look like a switch to the next track.
+            self.last_index = remaining.index
             return
 
         self.nullsink.sink_input = None

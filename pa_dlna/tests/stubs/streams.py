@@ -108,7 +108,7 @@ async def play_track(mime_type, transactions, wait_for_completion, logs,
                                         name='curl')
 
         if skip_wait_unixserver:
-            return curl_task, http_server
+            return http_server, http_server_t
 
         # Wait for the last chunk of data to be written to the pipe read by
         # Track.write_track().

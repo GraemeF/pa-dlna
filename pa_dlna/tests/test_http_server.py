@@ -5,6 +5,7 @@ import re
 import asyncio
 import unittest
 import h11
+import warnings
 from http import HTTPStatus
 from unittest import mock
 
@@ -217,9 +218,7 @@ class PlayTrackTests(LoggingIsolatedAsyncioTestCase):
         self.assertTrue(find_in_logs(self.logging_output, 'http',
                         f'{task_name}: Got CancelledError at Track shutdown'))
 
-    @unittest.skipIf(sys.version_info[:2] in ((3,12), (3,13)),
-                     f'ignored on python {sys.version_info[:2]}')
-    async def test_h11_send_exception(self):
+    async def _h11_send_exception(self):
 
         async def next_event(h11_wrapper):
             # Create the context manager.
@@ -244,8 +243,8 @@ class PlayTrackTests(LoggingIsolatedAsyncioTestCase):
                     # Play the track with no encoder.
                     mime_type = 'audio/l16;rate=44100;channels=2'
                     transactions = ['ignore', BLKSIZE]
-                    curl_task, http_server = await self.play_track(mime_type,
-                                    transactions, skip_wait_unixserver=True)
+                    http_server, http_server_t = await self.play_track(
+                        mime_type, transactions, skip_wait_unixserver=True)
 
                     try:
                         regexp = await asyncio.wait_for(
@@ -257,8 +256,25 @@ class PlayTrackTests(LoggingIsolatedAsyncioTestCase):
                     ctx_mgr_write.stop()
 
                 http_server.close()
-                curl_task.cancel()
+
+                # This is required in Python versions 3.12 and 3.13.
+                # Otherwise the test hangs forever after having printed 'ok'.
+                await asyncio.sleep(0)
+                http_server_t.cancel()
+
                 self.assertTrue(regexp is not None)
+
+    async def test_h11_send_exception(self):
+
+        ignore_warnings = (sys.version_info[:2] in ((3,12), (3,13)))
+        try:
+            if ignore_warnings:
+                warnings.simplefilter('ignore', category=ResourceWarning)
+
+            await self._h11_send_exception()
+        finally:
+            if ignore_warnings:
+                warnings.simplefilter('default', category=ResourceWarning)
 
 @requires_resources('curl')
 class HTTPServerTests(LoggingIsolatedAsyncioTestCase):

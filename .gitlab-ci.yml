@@ -63,9 +63,4 @@ pipewire-upmpdcli:
     script:
         - cd $CI_PROJECT_DIR
         - source ./tools/docker-pipewire.sh
-    rules:
-      - if: $CI_COMMIT_BRANCH == "master"
-        allow_failure: false
-      - if: $CI_COMMIT_BRANCH != "master"
-        allow_failure: true   # Failures allowed on feature branches
     coverage: '/TOTAL.* (100\%|\d?\d\%)$/'

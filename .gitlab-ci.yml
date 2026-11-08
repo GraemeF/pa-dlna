@@ -19,7 +19,7 @@ default:
     - /bin/find $CI_PROJECT_DIR -path $CI_PROJECT_DIR/.cache -prune -o
       -exec chown padlna:padlna {} \;
     - chown root:root $CI_PROJECT_DIR
-    - python -m pip install psutil libpulse h11
+    - python -m pip install psutil libpulse h11 systemd-python
     - su padlna -c "python --version"
 
 .pulseaudio: &pulseaudio

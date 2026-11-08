@@ -156,8 +156,13 @@ class DLNAControlPoint(PaDlnaTestCase):
             renderer.control_point.curtask.cancel('foo')
             await asyncio.sleep(0)
 
-        return_code = await self.run_control_point(handle_pulse_event,
+        return_code = None
+        try:
+            return_code = await self.run_control_point(handle_pulse_event,
                                                 test_devices=['audio/mp3'])
+        except asyncio.CancelledError:
+            pass
+
         self.assertTrue(return_code == None)
         self.assertTrue(find_in_logs(self.logging_output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
@@ -170,9 +175,13 @@ class DLNAControlPoint(PaDlnaTestCase):
         async def close(self):
             raise OSError('foo')
 
-        with mock.patch.object(Renderer, 'close', close):
-            return_code = await self.run_control_point(
+        return_code = None
+        try:
+            with mock.patch.object(Renderer, 'close', close):
+                return_code = await self.run_control_point(
                             handle_pulse_event, test_devices=['audio/mp3'])
+        except asyncio.CancelledError:
+            pass
 
         self.assertTrue(return_code == None)
         self.assertTrue(find_in_logs(self.logging_output, 'pa-dlna',
@@ -199,8 +208,12 @@ class DLNAControlPoint(PaDlnaTestCase):
             signal.raise_signal(signal.SIGINT)
             await asyncio.sleep(0)  # Avoid infinite loop.
 
-        return_code = await self.run_control_point(handle_pulse_event,
+        return_code = None
+        try:
+            return_code = await self.run_control_point(handle_pulse_event,
                                                 test_devices=['audio/mp3'])
+        except asyncio.CancelledError:
+            pass
 
         self.assertTrue(return_code == None)
         self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
@@ -214,8 +227,12 @@ class DLNARenderer(PaDlnaTestCase):
             renderer.control_point.test_end.set_result(True)
             raise OSError('foo')
 
-        return_code = await self.run_control_point(handle_pulse_event,
+        return_code = None
+        try:
+            return_code = await self.run_control_point(handle_pulse_event,
                                                 test_devices=['audio/mp3'])
+        except asyncio.CancelledError:
+            pass
 
         self.assertTrue(return_code is None,
                         msg=f'return_code: {return_code}')
@@ -236,8 +253,12 @@ class DLNARenderer(PaDlnaTestCase):
 
         with mock.patch.object(AVControlPoint, 'disable_root_device',
                                disable):
-            return_code = await self.run_control_point(
+            return_code = None
+            try:
+                return_code = await self.run_control_point(
                             handle_pulse_event, test_devices=['audio/foo'])
+            except asyncio.CancelledError:
+                pass
 
         self.assertEqual(return_code, None)
         self.assertTrue(search_in_logs(self.logging_output, 'foo',
@@ -256,8 +277,12 @@ class DLNARenderer(PaDlnaTestCase):
         # is not found, is unloaded.
         with mock.patch.object(AVControlPoint, 'disable_root_device',
                                disable):
-            return_code = await self.run_control_point(
+            return_code = None
+            try:
+                return_code = await self.run_control_point(
                             handle_pulse_event, test_devices=['audio/foo'])
+            except asyncio.CancelledError:
+                pass
 
         self.assertEqual(return_code, None)
         self.assertTrue(search_in_logs(self.logging_output, 'pulse',

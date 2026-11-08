@@ -840,6 +840,7 @@ class AVControlPoint(UPnPApplication):
         except asyncio.CancelledError as e:
             level = SYSTEMD_LOG_LEVEL if self.systemd else logging.INFO
             logger.log(level, f'Main task got: {e!r}')
+            raise
         finally:
             await self.close()
 

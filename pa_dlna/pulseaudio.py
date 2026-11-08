@@ -354,6 +354,7 @@ class Pulse:
 
         except asyncio.CancelledError:
             logger.debug('Pulse instance got CancelledError')
+            raise
         except LibPulseError as e:
             logger.error(f'{e!r}')
         finally:

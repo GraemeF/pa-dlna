@@ -1,5 +1,12 @@
 # Built from template located at:
 # https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Python.gitlab-ci.yml
+#
+# Note:
+#
+#   The images 'python:3.xx' used here are based on the latest stable debian release
+#   (currently Debian 13 trixie) where Python 3.xx has been installed with
+#   'make altinstall' at /usr/local. This implies that the python packages must be
+#   installed with pip.
 
 variables:
     PIP_BREAK_SYSTEM_PACKAGES: "1"
@@ -14,7 +21,7 @@ default:
             - .cache/pip
 
 .init-script: &init-script
-    - apt-get update -yq && apt-get install -yq curl ffmpeg pulseaudio-utils
+    - apt-get update -yq && apt-get install -yq curl ffmpeg pulseaudio-utils libsystemd-dev
     - useradd -m -s /bin/bash padlna
     - /bin/find $CI_PROJECT_DIR -path $CI_PROJECT_DIR/.cache -prune -o
       -exec chown padlna:padlna {} \;

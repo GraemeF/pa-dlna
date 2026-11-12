@@ -10,7 +10,8 @@ from unittest import IsolatedAsyncioTestCase, mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, find_in_logs, search_in_logs
+from . import (requires_resources, find_in_logs, search_in_logs,
+               TEST_TIMEOUT)
 from .streams import (BLKSIZE, run_curl, new_renderer, play_track, Renderer,
                       ControlPoint)
 from ..encoders import FFMpegEncoder, L16Encoder
@@ -214,7 +215,7 @@ class PlayTrackTests(IsolatedAsyncioTestCase):
             h11_wrapper = H11Wrapper(None, None)
             track = Track(None, h11_wrapper, task_name)
             task = asyncio.create_task(track.shutdown())
-            await asyncio.wait_for(task, timeout=1)
+            await asyncio.wait_for(task, timeout=TEST_TIMEOUT)
 
         self.assertTrue(find_in_logs(m_logs.output, 'http',
                         f'{task_name}: Got CancelledError at Track shutdown'))
@@ -239,7 +240,7 @@ class HTTPServerTests(IsolatedAsyncioTestCase):
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
-            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+            returncode, length = await asyncio.wait_for(curl_task, timeout=TEST_TIMEOUT)
 
         self.assertNotEqual(returncode, 0)
         self.assertEqual(length, 0)
@@ -253,7 +254,7 @@ class HTTPServerTests(IsolatedAsyncioTestCase):
             # Start curl.
             curl_task = asyncio.create_task(run_curl(
                                                 renderer.current_uri + 'fff'))
-            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+            returncode, length = await asyncio.wait_for(curl_task, timeout=TEST_TIMEOUT)
 
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
@@ -267,7 +268,7 @@ class HTTPServerTests(IsolatedAsyncioTestCase):
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri,
                                                      http_version='http1.0'))
-            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+            returncode, length = await asyncio.wait_for(curl_task, timeout=TEST_TIMEOUT)
 
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
@@ -281,7 +282,7 @@ class HTTPServerTests(IsolatedAsyncioTestCase):
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
-            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+            returncode, length = await asyncio.wait_for(curl_task, timeout=TEST_TIMEOUT)
 
         self.skip_if_curl_cannot_connect(returncode)
         self.assertEqual(returncode, 0)
@@ -296,7 +297,7 @@ class HTTPServerTests(IsolatedAsyncioTestCase):
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri))
-            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+            returncode, length = await asyncio.wait_for(curl_task, timeout=TEST_TIMEOUT)
 
         self.skip_if_curl_cannot_connect(returncode)
         self.assertEqual(returncode, 0)
@@ -311,7 +312,7 @@ class HTTPServerTests(IsolatedAsyncioTestCase):
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri,
                                                      extra_args=['--head']))
-            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+            returncode, length = await asyncio.wait_for(curl_task, timeout=TEST_TIMEOUT)
 
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)
@@ -325,7 +326,7 @@ class HTTPServerTests(IsolatedAsyncioTestCase):
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri,
                                     extra_args=['--data-raw', 'Hello there']))
-            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+            returncode, length = await asyncio.wait_for(curl_task, timeout=TEST_TIMEOUT)
 
         self.assertEqual(returncode, 0)
         self.assertTrue(find_in_logs(m_logs.output, 'http',
@@ -340,7 +341,7 @@ class HTTPServerTests(IsolatedAsyncioTestCase):
 
             # Start curl.
             curl_task = asyncio.create_task(run_curl(renderer.current_uri,))
-            returncode, length = await asyncio.wait_for(curl_task, timeout=1)
+            returncode, length = await asyncio.wait_for(curl_task, timeout=TEST_TIMEOUT)
 
         self.assertEqual(returncode, 0)
         self.assertNotEqual(length, 0)

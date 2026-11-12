@@ -10,6 +10,7 @@ import tempfile
 import contextlib
 from unittest import mock
 
+from . import TEST_TIMEOUT
 from .libpulse import use_libpulse_stubs
 from ..http_server import HTTPServer
 from ..encoders import select_encoder, Encoder
@@ -106,7 +107,7 @@ async def play_track(mime_type, transactions, wait_for_completion=True,
         # Track.write_track().
         if completed is not None:
             try:
-                await asyncio.wait_for(completed, timeout=1)
+                await asyncio.wait_for(completed, timeout=TEST_TIMEOUT)
             except TimeoutError:
                 print(f'***** server.stage: {server.stage}', file=sys.stderr)
                 print(f'***** http_server.stage: {http_server.stage}',

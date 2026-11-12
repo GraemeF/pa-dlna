@@ -12,7 +12,7 @@ from unittest import TestCase, IsolatedAsyncioTestCase, mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import (find_in_logs, search_in_logs, loopback_datagrams, URL,
+from . import (TEST_TIMEOUT, find_in_logs, search_in_logs, loopback_datagrams, URL,
                MSEARCH_PORT, HOST, HTTP_PORT, SSDP_PARAMS, SSDP_NOTIFY,
                SSDP_ALIVE, HTTPRequestHandler)
 from .. import TEST_LOGLEVEL
@@ -218,7 +218,7 @@ class SSDP_notify(IsolatedAsyncioTestCase):
                         break
                 else:
                     raise AssertionError(f'SSDP notify task not found')
-                await asyncio.wait_for(task, 1)
+                await asyncio.wait_for(task, TEST_TIMEOUT)
             except asyncio.CancelledError:
                 pass
             except TimeoutError:
@@ -274,7 +274,7 @@ class SSDP_msearch(IsolatedAsyncioTestCase):
                 await asyncio.sleep(0)
 
                 try:
-                    return await asyncio.wait_for(_get_result(protocol), 1)
+                    return await asyncio.wait_for(_get_result(protocol), TEST_TIMEOUT)
                 except TimeoutError:
                     raise AssertionError ('The sent datagram has not been'
                                           ' received')

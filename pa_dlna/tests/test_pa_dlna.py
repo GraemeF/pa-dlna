@@ -12,7 +12,7 @@ from unittest import IsolatedAsyncioTestCase, mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import find_in_logs, search_in_logs
+from . import find_in_logs, search_in_logs, TEST_TIMEOUT
 from .streams import set_control_point as _set_control_point
 from .libpulse import use_libpulse_stubs, LibPulse
 from .libpulse import SinkInput as LibPulseSinkInput
@@ -34,7 +34,6 @@ PROPLIST = { 'application.name': 'Strawberry',
              'media.artist': 'Ziggy Stardust',
              'media.title': 'Amarok',
             }
-TIMEOUT = 2
 
 def get_control_point(sink_inputs):
     upnp_control_point = UPnPControlPoint(nics=[], msearch_interval=60)
@@ -120,7 +119,7 @@ class PaDlnaTestCase(IsolatedAsyncioTestCase):
 
             try:
                 return_code = await asyncio.wait_for(
-                                control_point.run_control_point(), TIMEOUT)
+                                control_point.run_control_point(), TEST_TIMEOUT)
             except TimeoutError:
                 logs = ('\n'.join(l for l in m_logs.output if
                                   ':asyncio:' not in l))
@@ -299,7 +298,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
             await self.control_point.handle_upnp_notifications()
             if alive_count != 0:
                 try:
-                    await asyncio.wait_for(self.control_point.test_end, TIMEOUT)
+                    await asyncio.wait_for(self.control_point.test_end, TEST_TIMEOUT)
                 except TimeoutError:
                     logs = ('\n'.join(l for l in m_logs.output if
                                       ':asyncio:' not in l))

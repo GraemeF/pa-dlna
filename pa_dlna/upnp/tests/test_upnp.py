@@ -10,7 +10,7 @@ from unittest import mock, IsolatedAsyncioTestCase
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import (loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
+from . import (TEST_TIMEOUT, loopback_datagrams, find_in_logs, search_in_logs, UDN, HOST,
                HTTP_PORT, SSDP_NOTIFY, SSDP_PARAMS, SSDP_ALIVE, URL,
                bind_mcast_address, HTTPRequestHandler)
 from .test_network import snicaddr, snicstats
@@ -244,7 +244,7 @@ class ControlPoint(IsolatedAsyncioTestCase):
                 self.assertLogs(level=logging.DEBUG) as m_logs:
             msearch.side_effect = OSError('FOO')
             control_point.open()
-            await asyncio.wait_for(is_called(msearch), 1)
+            await asyncio.wait_for(is_called(msearch), TEST_TIMEOUT)
 
         self.assertTrue(search_in_logs(m_logs.output, 'upnp',
                                        re.compile(r"OSError\('FOO'\)")))

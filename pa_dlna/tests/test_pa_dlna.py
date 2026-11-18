@@ -12,7 +12,8 @@ from unittest import mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import find_in_logs, search_in_logs, LoggingIsolatedAsyncioTestCase
+from . import (find_in_logs, search_in_logs, LoggingIsolatedAsyncioTestCase,
+               TEST_TIMEOUT)
 from .stubs.pa_dlna import set_control_point as _set_control_point
 from .stubs.libpulse import use_libpulse_stubs, LibPulse
 from .stubs.libpulse import SinkInput as LibPulseSinkInput
@@ -34,7 +35,6 @@ PROPLIST = { 'application.name': 'Strawberry',
              'media.artist': 'Ziggy Stardust',
              'media.title': 'Amarok',
             }
-TIMEOUT = 2
 
 def get_control_point(sink_inputs):
     upnp_control_point = UPnPControlPoint(nics=[], msearch_interval=60)
@@ -119,7 +119,7 @@ class PaDlnaTestCase(LoggingIsolatedAsyncioTestCase):
 
             try:
                 return_code = await asyncio.wait_for(
-                                control_point.run_control_point(), TIMEOUT)
+                                control_point.run_control_point(), TEST_TIMEOUT)
             except TimeoutError:
                 logs = '\n'.join(self.logging_output)
                 self.fail(f'TimeoutError with logs:\n{logs}')
@@ -321,7 +321,7 @@ class PatchGetNotificationTests(LoggingIsolatedAsyncioTestCase):
             await self.control_point.handle_upnp_notifications()
             if alive_count != 0:
                 try:
-                    await asyncio.wait_for(self.control_point.test_end, TIMEOUT)
+                    await asyncio.wait_for(self.control_point.test_end, TEST_TIMEOUT)
                 except TimeoutError:
                     logs = '\n'.join(self.logging_output)
                     self.fail(f'TimeoutError with logs:\n{logs}')
@@ -537,6 +537,59 @@ class PatchSoapActionTests(LoggingIsolatedAsyncioTestCase):
             re.compile(
                 "'Closing-Stop' UPnP action .* device prev state: PLAYING")))
 
+    async def test_remove_event_other_sink_input(self):
+        # A short sound ends while music is still playing into the same
+        # null-sink: streaming carries on with the music.
+        index = 999
+        ctx = PulseEventContext(prev_sink_input_index=index)
+        ctx.renderer.nullsink.sink.index = 7
+        music = LibPulseSinkInput('music', [])
+        music.sink = 7
+        LibPulse.sink_inputs.append(music)
+        ctx.renderer.previous_idx = music.index
+
+        with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 0):
+            result = await self.patch_soap_action('remove', ctx,
+                                                    timeout=0.2,
+                                                    transport_state='PLAYING')
+
+        self.assertEqual(len(result), 0)
+        self.assertIs(ctx.renderer.nullsink.sink_input, music)
+        self.assertEqual(ctx.renderer.previous_idx, None)
+        self.assertFalse(search_in_logs(self.logging_output, 'pa-dlna',
+            re.compile("'Closing-Stop' UPnP action")))
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
+            re.compile(f"Streaming 'music' on .* after the end of"
+                       f" sink-input index {index}")))
+
+    async def test_remove_event_adopted_sink_input(self):
+        # The music adopted after a short sound ended is older than that
+        # sound. Its end is not taken for a switch to the next track.
+        ctx = PulseEventContext(prev_sink_input_index=1001)
+        ctx.renderer.last_index = 1001
+        ctx.renderer.nullsink.sink.index = 7
+        music = LibPulseSinkInput('music', [])
+        music.index = 999
+        music.sink = 7
+        LibPulse.sink_inputs.append(music)
+
+        with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 0.3):
+            await self.patch_soap_action('remove', ctx, timeout=0.5,
+                                         transport_state='PLAYING')
+            self.assertIs(ctx.renderer.nullsink.sink_input, music)
+            self.assertFalse(search_in_logs(self.logging_output, 'pa-dlna',
+                re.compile("'Closing-Stop' UPnP action")))
+
+            LibPulse.sink_inputs.remove(music)
+            result = await self.patch_soap_action('remove', ctx,
+                                                    timeout=0.5,
+                                                    transport_state='PLAYING')
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(ctx.renderer.nullsink.sink_input, None)
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
+            re.compile("'Closing-Stop' UPnP action")))
+
     async def test_ignore_remove_event(self):
         index = 999
         ctx = PulseEventContext(prev_sink_input_index=index)
@@ -554,7 +607,7 @@ class PatchSoapActionTests(LoggingIsolatedAsyncioTestCase):
             try:
                 regexp = await asyncio.wait_for(
                                         self.has_error_in_logs('pa-dlna',
-                                       "'remove ignored' .* index 1000"), 1)
+                                       "'remove ignored' .* index 1000"), TEST_TIMEOUT)
             except TimeoutError:
                 regexp = None
 

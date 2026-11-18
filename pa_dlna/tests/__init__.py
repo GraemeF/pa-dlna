@@ -13,7 +13,8 @@ from unittest import IsolatedAsyncioTestCase, TestCase
 
 from ..init import require_libpulse_version, MIN_LIBPULSE_VERSION
 from ..upnp.tests import (load_ordered_tests, find_in_logs, search_in_logs,
-                          RUNNING_ONLY_MATCHING_TESTS, setup_test_logging)
+                          RUNNING_ONLY_MATCHING_TESTS, setup_test_logging,
+                          TEST_TIMEOUT)
 
 def setUpModule():
     require_libpulse_version(MIN_LIBPULSE_VERSION)

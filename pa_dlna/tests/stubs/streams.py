@@ -18,6 +18,7 @@ import tempfile
 import contextlib
 import logging
 
+from .. import TEST_TIMEOUT
 from ...http_server import HTTPServer
 from .pa_dlna import new_renderer
 
@@ -112,7 +113,7 @@ async def play_track(mime_type, transactions, wait_for_completion, logs,
         # Track.write_track().
         if completed is not None:
             try:
-                await asyncio.wait_for(completed, timeout=1)
+                await asyncio.wait_for(completed, timeout=TEST_TIMEOUT)
             except TimeoutError:
                 logger.error(f'***** server.stage: {server.stage}')
                 logger.error(f'***** http_server.stage: {http_server.stage}')

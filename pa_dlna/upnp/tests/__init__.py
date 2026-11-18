@@ -21,6 +21,10 @@ from ..network import MCAST_ADDR
 RUNNING_ONLY_MATCHING_TESTS = any(arg == '-k' for arg in sys.argv[1:])
 
 MSEARCH_PORT = 9999
+# How long a test waits for something that should happen. A build machine
+# under load can take seconds to start the Python processes a test spawns,
+# and a passing test never waits this long.
+TEST_TIMEOUT = 30
 SSDP_NOTIFY = '\r\n'.join([
     'NOTIFY * HTTP/1.1',
     'Host: 239.255.255.250:1900',
@@ -142,7 +146,7 @@ async def loopback_datagrams(datagrams, patch_method=None, setup=None):
 
         if patch_method is not None:
             try:
-                await asyncio.wait_for(is_called(method), 1)
+                await asyncio.wait_for(is_called(method), TEST_TIMEOUT)
             except TimeoutError:
                 raise AssertionError(
                     f'{patch_method}() not called') from None

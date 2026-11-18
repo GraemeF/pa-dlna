@@ -8,7 +8,8 @@ from http import HTTPStatus
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import search_in_logs, HTTPRequestHandler, LoggingTestCase
+from . import (search_in_logs, HTTPRequestHandler, LoggingTestCase,
+               TEST_TIMEOUT)
 from ..network import http_get, UPnPInvalidHttpError
 from ..util import shorten, log_unhandled_exception, AsyncioTasks
 
@@ -62,7 +63,7 @@ class Util(LoggingTestCase):
         http_server = HTTPServer(message, exception)
         asyncio.create_task(http_server.run())
         await http_server.startup
-        await asyncio.wait_for(http_get(URL), 1)
+        await asyncio.wait_for(http_get(URL), TEST_TIMEOUT)
 
     def test_shorten(self):
         tests = [

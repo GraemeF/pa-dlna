@@ -6,6 +6,7 @@ import sys
 try:
     import h11
     import psutil
+    import libpulse
 except ImportError as e:
     sys.exit(f'This package is required: {e!r}')
 
@@ -76,7 +77,8 @@ def setup_logging(options, default_loglevel):
     root.setLevel(logging.DEBUG)
 
     options_systemd = options.get('systemd')
-    if options_systemd and systemd_module is not None:
+    use_systemd = (options_systemd and systemd_module is not None)
+    if use_systemd:
         handler = journal.JournalHandler(SYSLOG_IDENTIFIER='pa-dlna')
         formatter = logging.Formatter(fmt='%(message)s')
     else:
@@ -92,7 +94,12 @@ def setup_logging(options, default_loglevel):
         handler.setLevel(getattr(logging, loglevel.upper()))
 
     handler.setFormatter(formatter)
-    root.addHandler(handler)
+
+    # Do not add this StreamHandler when running tests as it conflicts with
+    # the StreamHandler added by the tests (when 'has_root_hdlers' is True).
+    has_root_hdlers = (len(root.handlers) != 0)
+    if use_systemd or not has_root_hdlers:
+        root.addHandler(handler)
 
     if options['nolog_upnp']:
         logging.getLogger('upnp').addFilter(FilterDebug())
@@ -328,9 +335,7 @@ def padlna_main(clazz, doc, argv=sys.argv):
     options, logfile_hdler = parse_args(doc, pa_dlna, argv[1:])
 
     systemd = options.get('systemd')
-    if systemd and systemd_module is None:
-        raise RuntimeError('Cannot import the systemd module, the'
-                           " 'python-systemd' package is missing")
+    use_systemd = (systemd and systemd_module is not None)
 
     # Instantiate the UPnPApplication.
     if pa_dlna:
@@ -344,7 +349,7 @@ def padlna_main(clazz, doc, argv=sys.argv):
                 DefaultConfig(delimiters=('=',)).write_parser(sys.stdout)
                 sys.exit(0)
 
-            config = UserConfig(systemd=systemd)
+            config = UserConfig(use_systemd=use_systemd)
             if options['dump_internal']:
                 config.print_internal_config()
                 sys.exit(0)
@@ -356,11 +361,13 @@ def padlna_main(clazz, doc, argv=sys.argv):
         app = clazz(**options)
 
     # Run the UPnPApplication instance.
-    loglevel = SYSTEMD_LOG_LEVEL if systemd else logging.INFO
+    loglevel = SYSTEMD_LOG_LEVEL if use_systemd else logging.INFO
     logger.log(loglevel, f'Starting {app}')
-    exit_code = 1
     try:
         if pa_dlna:
+            if systemd and systemd_module is None:
+                raise Exception("Cannot import 'systemd' - install the"
+                                "  'python-systemd' package")
             try:
                 if systemd:
                     daemon.notify('READY=1')
@@ -375,7 +382,7 @@ def padlna_main(clazz, doc, argv=sys.argv):
                         restore_termios = disable_xonxoff(fd)
                         if restore_termios is not None:
                             atexit.register(restore_termios)
-                exit_code = asyncio.run(app.run_control_point())
+                asyncio.run(app.run_control_point())
             finally:
                 if systemd:
                     daemon.notify('STOPPING=1')
@@ -383,10 +390,13 @@ def padlna_main(clazz, doc, argv=sys.argv):
             # Run the control point of upnp-cmd in a thread.
             event = threading.Event()
             cp_thread = run_in_thread(app.run_control_point(event))
-            exit_code = app.run(cp_thread, event)
+            app.run(cp_thread, event)
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        sys.exit(f'*** error: {e}')
     finally:
         logger.log(loglevel, f'End of {app}')
         if logfile_hdler is not None:
             logfile_hdler.flush()
         logging.shutdown()
-        sys.exit(exit_code)

@@ -62,7 +62,7 @@ The `python-systemd`_ package is required to run the pa-dlna systemd service
 unit. It is packaged by almost all Linux distributions but under different
 names. To install the package from a Linux distribution or from PYPi, see the
 ``Installation section`` on the main page of the `python-systemd git
-repository`_.
+repository`_. Note that on PyPi the package is named **systemd-python** instead.
 
 Encoders
 """"""""

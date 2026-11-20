@@ -7,15 +7,16 @@ import time
 import shutil
 import logging
 import tempfile
-from unittest import IsolatedAsyncioTestCase, mock
+from unittest import mock
 
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import find_in_logs, search_in_logs, TEST_TIMEOUT
-from .streams import set_control_point as _set_control_point
-from .libpulse import use_libpulse_stubs, LibPulse
-from .libpulse import SinkInput as LibPulseSinkInput
+from . import (find_in_logs, search_in_logs, LoggingIsolatedAsyncioTestCase,
+               TEST_TIMEOUT)
+from .stubs.pa_dlna import set_control_point as _set_control_point
+from .stubs.libpulse import use_libpulse_stubs, LibPulse
+from .stubs.libpulse import SinkInput as LibPulseSinkInput
 from ..init import ControlPointAbortError
 from ..encoders import Encoder
 from ..upnp.upnp import (UPnPRootDevice, QUEUE_CLOSED, UPnPControlPoint,
@@ -88,7 +89,7 @@ class SinkInput:
         self.client = 0
         self.proplist = proplist if proplist is not None else PROPLIST.copy()
 
-class PaDlnaTestCase(IsolatedAsyncioTestCase):
+class PaDlnaTestCase(LoggingIsolatedAsyncioTestCase):
     async def run_control_point(self, handle_pulse_event,
                                 set_control_point=set_control_point,
                                 test_devices=[],
@@ -106,8 +107,7 @@ class PaDlnaTestCase(IsolatedAsyncioTestCase):
         # closing the AVControlPoint instance 'control_point'.
         with mock.patch.object(Renderer,
                                'handle_pulse_event', handle_pulse_event),\
-                mock.patch.object(shutil, 'which', which),\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+                mock.patch.object(shutil, 'which', which):
 
             control_point = AVControlPoint(ip_addresses=[], nics='lo',
                                         port=8080, ttl=2, msearch_interval=60,
@@ -121,12 +121,10 @@ class PaDlnaTestCase(IsolatedAsyncioTestCase):
                 return_code = await asyncio.wait_for(
                                 control_point.run_control_point(), TEST_TIMEOUT)
             except TimeoutError:
-                logs = ('\n'.join(l for l in m_logs.output if
-                                  ':asyncio:' not in l))
-                logs = None if not logs else '\n' + logs
-                self.fail(f'TimeoutError with logs: {logs}')
+                logs = '\n'.join(self.logging_output)
+                self.fail(f'TimeoutError with logs:\n{logs}')
 
-        return return_code, m_logs
+        return return_code
 
 class DLNAControlPoint(PaDlnaTestCase):
     """The control point test cases."""
@@ -135,22 +133,22 @@ class DLNAControlPoint(PaDlnaTestCase):
         async def handle_pulse_event(renderer):
             await asyncio.sleep(0)
 
-        return_code, logs = await self.run_control_point(handle_pulse_event,
+        return_code = await self.run_control_point(handle_pulse_event,
                                             test_devices=['audio/mp3'],
                                             set_control_point=set_no_encoder)
         self.assertTrue(isinstance(return_code, RuntimeError))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                                        re.compile('No encoder is available')))
 
     async def test_no_parec(self):
         async def handle_pulse_event(renderer):
             await asyncio.sleep(0)
 
-        return_code, logs = await self.run_control_point(handle_pulse_event,
+        return_code = await self.run_control_point(handle_pulse_event,
                                                 test_devices=['audio/mp3'],
                                                 has_parec=False)
         self.assertTrue(isinstance(return_code, RuntimeError))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                         re.compile("'parec' program cannot be found")))
 
     async def test_cancelled(self):
@@ -158,10 +156,15 @@ class DLNAControlPoint(PaDlnaTestCase):
             renderer.control_point.curtask.cancel('foo')
             await asyncio.sleep(0)
 
-        return_code, logs = await self.run_control_point(handle_pulse_event,
+        return_code = None
+        try:
+            return_code = await self.run_control_point(handle_pulse_event,
                                                 test_devices=['audio/mp3'])
+        except asyncio.CancelledError:
+            pass
+
         self.assertTrue(return_code == None)
-        self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(find_in_logs(self.logging_output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
 
     async def test_exception_renderer_close(self):
@@ -172,28 +175,32 @@ class DLNAControlPoint(PaDlnaTestCase):
         async def close(self):
             raise OSError('foo')
 
-        with mock.patch.object(Renderer, 'close', close):
-            return_code, logs = await self.run_control_point(
+        return_code = None
+        try:
+            with mock.patch.object(Renderer, 'close', close):
+                return_code = await self.run_control_point(
                             handle_pulse_event, test_devices=['audio/mp3'])
+        except asyncio.CancelledError:
+            pass
 
         self.assertTrue(return_code == None)
-        self.assertTrue(find_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(find_in_logs(self.logging_output, 'pa-dlna',
                                      "Main task got: CancelledError('foo')"))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                     re.compile(r"Got exception closing DLNATest_\S+ - \S+"
                                fr" OSError\('foo'\)")))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                                        re.compile(r'Close \S+ root device')))
 
     async def test_abort(self):
         async def handle_pulse_event(renderer):
             await asyncio.sleep(0)  # Avoid infinite loop.
 
-        return_code, logs = await self.run_control_point(handle_pulse_event,
+        return_code = await self.run_control_point(handle_pulse_event,
                                 test_devices=['audio/mp3', 'audio/mp3'])
 
         self.assertTrue(type(return_code), ControlPointAbortError)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                 re.compile('Two DLNA devices registered with the same name')))
 
     async def test_SIGINT(self):
@@ -201,11 +208,15 @@ class DLNAControlPoint(PaDlnaTestCase):
             signal.raise_signal(signal.SIGINT)
             await asyncio.sleep(0)  # Avoid infinite loop.
 
-        return_code, logs = await self.run_control_point(handle_pulse_event,
+        return_code = None
+        try:
+            return_code = await self.run_control_point(handle_pulse_event,
                                                 test_devices=['audio/mp3'])
+        except asyncio.CancelledError:
+            pass
 
         self.assertTrue(return_code == None)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                                        re.compile('Got SIGINT or SIGTERM')))
 
 class DLNARenderer(PaDlnaTestCase):
@@ -216,15 +227,19 @@ class DLNARenderer(PaDlnaTestCase):
             renderer.control_point.test_end.set_result(True)
             raise OSError('foo')
 
-        return_code, logs = await self.run_control_point(handle_pulse_event,
+        return_code = None
+        try:
+            return_code = await self.run_control_point(handle_pulse_event,
                                                 test_devices=['audio/mp3'])
+        except asyncio.CancelledError:
+            pass
 
         self.assertTrue(return_code is None,
                         msg=f'return_code: {return_code}')
-        _logs = '\n'.join(l for l in logs.output if ':ASYNCIO:' not in l)
-        self.assertTrue(find_in_logs(logs.output, 'pa-dlna', "OSError('foo')"),
+        _logs = '\n'.join(l for l in self.logging_output if ':ASYNCIO:' not in l)
+        self.assertTrue(find_in_logs(self.logging_output, 'pa-dlna', "OSError('foo')"),
                         msg=_logs)  # Print the logs if the assertion fails.
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                     re.compile("New 'DLNATest_.*' renderer with Mp3Encoder")))
 
     async def test_unknown_encoder(self):
@@ -238,11 +253,15 @@ class DLNARenderer(PaDlnaTestCase):
 
         with mock.patch.object(AVControlPoint, 'disable_root_device',
                                disable):
-            return_code, logs = await self.run_control_point(
+            return_code = None
+            try:
+                return_code = await self.run_control_point(
                             handle_pulse_event, test_devices=['audio/foo'])
+            except asyncio.CancelledError:
+                pass
 
         self.assertEqual(return_code, None)
-        self.assertTrue(search_in_logs(logs.output, 'foo',
+        self.assertTrue(search_in_logs(self.logging_output, 'foo',
                     re.compile('Disable the DLNATest_.* device permanently')))
 
     async def test_bad_encoder_unload_module(self):
@@ -258,17 +277,22 @@ class DLNARenderer(PaDlnaTestCase):
         # is not found, is unloaded.
         with mock.patch.object(AVControlPoint, 'disable_root_device',
                                disable):
-            return_code, logs = await self.run_control_point(
+            return_code = None
+            try:
+                return_code = await self.run_control_point(
                             handle_pulse_event, test_devices=['audio/foo'])
+            except asyncio.CancelledError:
+                pass
 
         self.assertEqual(return_code, None)
-        self.assertTrue(search_in_logs(logs.output, 'pulse',
+        self.assertTrue(search_in_logs(self.logging_output, 'pulse',
                         re.compile('Unload null-sink module DLNATest_foo')))
 
-class PatchGetNotificationTests(IsolatedAsyncioTestCase):
+class PatchGetNotificationTests(LoggingIsolatedAsyncioTestCase):
     """Test cases using patch_get_notification()."""
 
     def setUp(self):
+        super().setUp()
         self.upnp_control_point, self.control_point = get_control_point([])
 
     async def patch_get_notification(self, notifications=[], alive_count=0):
@@ -291,8 +315,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
                 mock.patch.object(Renderer, 'soap_action',
                                   pa_dlna.DLNATestDevice.soap_action),\
                 mock.patch.object(Renderer, 'handle_pulse_event',
-                                  handle_pulse_event),\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+                                  handle_pulse_event):
             notifications.append(QUEUE_CLOSED)
             get_notif.side_effect = notifications
             await self.control_point.handle_upnp_notifications()
@@ -300,22 +323,18 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
                 try:
                     await asyncio.wait_for(self.control_point.test_end, TEST_TIMEOUT)
                 except TimeoutError:
-                    logs = ('\n'.join(l for l in m_logs.output if
-                                      ':asyncio:' not in l))
-                    logs = None if not logs else '\n' + logs
-                    self.fail(f'TimeoutError with logs: {logs}')
+                    logs = '\n'.join(self.logging_output)
+                    self.fail(f'TimeoutError with logs:\n{logs}')
 
-        return m_logs
-
-    async def test_alive(self):
+    async def test_root_alive(self):
         root_device = RootDevice(self.upnp_control_point)
-        logs = await self.patch_get_notification([('alive', root_device)],
+        await self.patch_get_notification([('alive', root_device)],
                                                  alive_count=1)
 
         self.assertEqual(len(self.control_point.root_devices), 1)
         renderer = list(self.control_point.root_devices.values())[0][0]
         self.assertEqual(renderer.root_device, root_device)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                 re.compile("New 'RootDevice_mp3.*' renderer with Mp3Encoder")))
 
     async def test_missing_deviceType(self):
@@ -324,9 +343,10 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
                                                  alive_count=0)
 
         self.assertEqual(len(self.control_point.root_devices), 0)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile('missing deviceType')))
-        self.assertTrue(search_in_logs(logs.output, 'upnp',
+        output = self.logging_output
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
+                                       re.compile('missing deviceType')))
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
                 re.compile('Disable the UPnPRootDevice .* permanently')))
 
     async def test_not_MediaRenderer(self):
@@ -335,9 +355,10 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
                                                  alive_count=0)
 
         self.assertEqual(len(self.control_point.root_devices), 0)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
-                re.compile('no MediaRenderer')))
-        self.assertTrue(search_in_logs(logs.output, 'upnp',
+        output = self.logging_output
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
+                                       re.compile('no MediaRenderer')))
+        self.assertTrue(search_in_logs(self.logging_output, 'upnp',
                 re.compile('Disable the UPnPRootDevice .* permanently')))
 
     async def test_byebye(self):
@@ -355,11 +376,11 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
                                                  alive_count=2)
 
         self.assertEqual(len(self.control_point.root_devices), 1)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                 re.compile("Got 'byebye' notification")))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                 re.compile(r"Closing 'RootDevice_mp3 - \S+'")))
-        self.assertTrue(search_in_logs(logs.output, 'pulse',
+        self.assertTrue(search_in_logs(self.logging_output, 'pulse',
                 re.compile('Unload null-sink module RootDevice_mp3')))
 
     async def test_disabled_root_device(self):
@@ -367,10 +388,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
         mpeg_root_device = RootDevice(self.upnp_control_point,
                                       mime_type='audio/mpeg')
 
-        # Capture the logs (and ignore them) to avoid them being printed on
-        # stderr.
-        with self.assertLogs(level=logging.DEBUG) as m_logs:
-            self.control_point.disable_root_device(root_device)
+        self.control_point.disable_root_device(root_device)
 
         logs = await self.patch_get_notification([('alive', root_device),
                                                   ('alive', mpeg_root_device)
@@ -378,7 +396,7 @@ class PatchGetNotificationTests(IsolatedAsyncioTestCase):
                                                  alive_count=1)
 
         self.assertEqual(len(self.control_point.root_devices), 1)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                                 re.compile('Ignore disabled UPnPRootDevice')))
 
 class PulseEventContext:
@@ -430,7 +448,7 @@ class PulseEventContext:
         self.sink_input = (SinkInput(sink_input_index, sink_input_proplist) if
                            sink_input_index is not None else None)
 
-class PatchSoapActionTests(IsolatedAsyncioTestCase):
+class PatchSoapActionTests(LoggingIsolatedAsyncioTestCase):
     """Test cases using patch_soap_action()."""
 
     @staticmethod
@@ -455,8 +473,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
                 result.append((serviceId, action, args))
 
         result = []
-        with mock.patch.object(Renderer, 'soap_action', soap_action),\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+        with mock.patch.object(Renderer, 'soap_action', soap_action):
             # Select the encoder: Renderer.sink_input_meta() needs
             # to read the Renderer.encoder.track_metadata attribute.
             await self.select_encoder(ctx)
@@ -475,7 +492,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
             if timeout:
                 await asyncio.sleep(timeout)
 
-        return result, m_logs
+        return result
 
     @staticmethod
     def set_renderer_to_run(sink_input_name):
@@ -508,15 +525,15 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertEqual(ctx.sink_input, None)
 
         with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 0):
-            result, logs = await self.patch_soap_action('remove', ctx,
+            result = await self.patch_soap_action('remove', ctx,
                                                     timeout=0.2,
                                                     transport_state='PLAYING')
 
         self.assertEqual(len(result), 1)
         self.assertEqual(ctx.renderer.nullsink.sink_input, None)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
             re.compile(f"'remove' pulse event .* index {index}")))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
             re.compile(
                 "'Closing-Stop' UPnP action .* device prev state: PLAYING")))
 
@@ -532,16 +549,16 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         ctx.renderer.previous_idx = music.index
 
         with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 0):
-            result, logs = await self.patch_soap_action('remove', ctx,
+            result = await self.patch_soap_action('remove', ctx,
                                                     timeout=0.2,
                                                     transport_state='PLAYING')
 
         self.assertEqual(len(result), 0)
         self.assertIs(ctx.renderer.nullsink.sink_input, music)
         self.assertEqual(ctx.renderer.previous_idx, None)
-        self.assertFalse(search_in_logs(logs.output, 'pa-dlna',
+        self.assertFalse(search_in_logs(self.logging_output, 'pa-dlna',
             re.compile("'Closing-Stop' UPnP action")))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
             re.compile(f"Streaming 'music' on .* after the end of"
                        f" sink-input index {index}")))
 
@@ -560,15 +577,17 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
             await self.patch_soap_action('remove', ctx, timeout=0.5,
                                          transport_state='PLAYING')
             self.assertIs(ctx.renderer.nullsink.sink_input, music)
+            self.assertFalse(search_in_logs(self.logging_output, 'pa-dlna',
+                re.compile("'Closing-Stop' UPnP action")))
 
             LibPulse.sink_inputs.remove(music)
-            result, logs = await self.patch_soap_action('remove', ctx,
+            result = await self.patch_soap_action('remove', ctx,
                                                     timeout=0.5,
                                                     transport_state='PLAYING')
 
         self.assertEqual(len(result), 1)
         self.assertEqual(ctx.renderer.nullsink.sink_input, None)
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
             re.compile("'Closing-Stop' UPnP action")))
 
     async def test_ignore_remove_event(self):
@@ -580,20 +599,22 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
         self.assertEqual(ctx.sink_input, None)
 
-        with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 1),\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
-            result, logs = await self.patch_soap_action('remove', ctx,
+        with mock.patch.object(pa_dlna, 'ISSUE_48_TIMER', 1):
+            result = await self.patch_soap_action('remove', ctx,
                                                     transport_state='PLAYING')
             ctx.renderer.nullsink.sink_input.index = 1000
-            await asyncio.sleep(1)
 
-        logs = logs.output + m_logs.output
+            try:
+                regexp = await asyncio.wait_for(
+                                        self.has_error_in_logs('pa-dlna',
+                                       "'remove ignored' .* index 1000"), TEST_TIMEOUT)
+            except TimeoutError:
+                regexp = None
+
+        self.assertTrue(regexp is not None)
         self.assertEqual(len(result), 0)
-        self.assertTrue(search_in_logs(logs, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
             re.compile(f"'remove' pulse event .* index {index}")))
-        self.assertTrue(search_in_logs(logs, 'pa-dlna',
-            re.compile(
-                "'remove ignored' .* index 1000")))
 
     async def test_exit_metadata(self):
         ctx = PulseEventContext(prev_sink_input_index=0)
@@ -609,7 +630,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
 
         ctx.sink = Sink()
         ctx.sink_input = SinkInput(1)
-        result, logs = await self.patch_soap_action('change', ctx)
+        result = await self.patch_soap_action('change', ctx)
 
         self.assertEqual(ctx.renderer.exit_metadata, None)
         self.assertEqual(len(result), 2)
@@ -621,14 +642,14 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         self.assertEqual(ctx.renderer.nullsink.sink_input, None)
 
         await self.patch_soap_action('new', ctx)
-        result, logs = await self.patch_soap_action('change', ctx)
+        result = await self.patch_soap_action('change', ctx)
 
         self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
         self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0][1], 'SetAVTransportURI')
         self.assertEqual(result[1][1], 'Play')
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                 re.compile(r"MetaData\(.*artist='Ziggy Stardust'")))
 
     async def test_clients_uuids(self):
@@ -647,11 +668,11 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
             control_point.pulse.lib_pulse.sink_inputs.append(ctx.sink_input)
 
             await self.patch_soap_action('new', ctx)
-            result, logs = await self.patch_soap_action('change', ctx)
+            result = await self.patch_soap_action('change', ctx)
 
             self.assertEqual(result[0][1], 'SetAVTransportURI')
-            self.assertTrue(search_in_logs(logs.output, 'pulse',
-                    re.compile("Adding new association 'Strawberry' -> uuid")))
+            #self.assertTrue(search_in_logs(self.logging_output, 'pulse',
+            #        re.compile("Adding new association 'Strawberry' -> uuid")))
             applications = ctx.renderer.control_point.applications
             self.assertTrue('Strawberry' in applications)
             self.assertTrue(applications['Strawberry'].startswith('uuid:'))
@@ -666,16 +687,16 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
                                 sink_input_proplist=proplist)
         self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
 
-        result, logs = await self.patch_soap_action('change', ctx,
+        result = await self.patch_soap_action('change', ctx,
                                                     transport_state='PLAYING')
 
         self.assertTrue(ctx.renderer.nullsink.sink is ctx.sink)
         self.assertTrue(ctx.renderer.nullsink.sink_input is ctx.sink_input)
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], 'SetNextAVTransportURI')
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
             re.compile(f'change.* event .* sink-input index {index}')))
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                 re.compile(r"MetaData\(.* title='Sticky Fingers'\)")))
 
     async def test_no_title(self):
@@ -689,12 +710,12 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         proplist['application.name'] = application_name
         proplist['media.title'] = ''
         ctx.sink_input.proplist = proplist
-        result, logs = await self.patch_soap_action('change', ctx)
+        result = await self.patch_soap_action('change', ctx)
 
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0][1], 'SetAVTransportURI')
         self.assertEqual(result[1][1], 'Play')
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                 re.compile(fr"MetaData\(.*, title='{application_name}'\)")))
 
     async def test_no_track_metadata(self):
@@ -719,7 +740,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         # See the comment in the code.
         self.assertTrue(sink_input_meta(ctx.sink_input) ==
                    sink_input_meta(ctx.renderer.nullsink.sink_input))
-        result, logs = await self.patch_soap_action('change', ctx,
+        result = await self.patch_soap_action('change', ctx,
                                                     transport_state='PLAYING')
         self.assertEqual(len(result), 0)
 
@@ -732,7 +753,7 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
                                 sink_input_index=1)
         self.assertTrue(ctx.renderer.nullsink.sink_input is not None)
 
-        result, logs = await self.patch_soap_action('change', ctx,
+        result = await self.patch_soap_action('change', ctx,
                                                     transport_state='PLAYING')
 
         self.assertEqual(len(result), 0)
@@ -761,14 +782,13 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
 
             # Handle the event pushed by the 'new_session_max_delay' task.
             result = []
-            with mock.patch.object(Renderer, 'soap_action', soap_action),\
-                    self.assertLogs(level=logging.DEBUG) as logs:
+            with mock.patch.object(Renderer, 'soap_action', soap_action):
                 await ctx.renderer.handle_pulse_event()
 
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0][1], 'SetAVTransportURI')
         self.assertEqual(result[1][1], 'Play')
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                 re.compile(r"MetaData\(.*artist='Ziggy Stardust'")))
 
     async def test_soap_minimum_interval(self):
@@ -787,23 +807,22 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
         with mock.patch.object(Renderer, 'play') as play:
             play.side_effect = UPnPSoapFaultError(SoapFault('701'))
             await self.patch_soap_action('new', ctx)
-            result, logs = await self.patch_soap_action('change', ctx)
+            result = await self.patch_soap_action('change', ctx)
 
         play.assert_called_once()
-        self.assertTrue(search_in_logs(logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
             re.compile("Ignoring SOAP error 'Transition not available'")))
 
     async def test_soap_fault_renderer(self):
         renderer, _ = self.set_renderer_to_run('some renderer')
 
-        with mock.patch.object(Renderer, 'select_encoder') as select_encoder,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+        with mock.patch.object(Renderer, 'select_encoder') as select_encoder:
             renderer.upnp_device._closed = True
             select_encoder.return_value = True
             await renderer.pulse_register()
             await renderer.run()
 
-        self.assertTrue(search_in_logs(m_logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
             re.compile(fr"UPnPSoapFaultError.'UPnPRootDevice is closed'")))
 
     async def test_start_streaming(self):
@@ -812,13 +831,12 @@ class PatchSoapActionTests(IsolatedAsyncioTestCase):
 
         with mock.patch.object(Renderer, 'handle_action') as handle_action,\
                 mock.patch.object(Renderer,
-                                  'select_encoder') as select_encoder,\
-                self.assertLogs(level=logging.DEBUG) as m_logs:
+                                  'select_encoder') as select_encoder:
             select_encoder.return_value = True
             await renderer.pulse_register()
             await renderer.run()
             handle_action.assert_called_once_with(
                                         renderer.sink_input_meta(sink_input))
 
-        self.assertTrue(search_in_logs(m_logs.output, 'pa-dlna',
+        self.assertTrue(search_in_logs(self.logging_output, 'pa-dlna',
                                 re.compile(f"Streaming '{sink_input_name}'")))

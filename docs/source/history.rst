@@ -1,5 +1,15 @@
-Release history
-===============
+Release Notes
+=============
+
+Version 2.1
+    - Close the HTTP connection to the DLNA device after sending the HTTP error
+      response to a bad HTTP request.
+    - Fix the error incorrectly logged by H11Wrapper.send() after the track has
+      been closed by the music player (issue #69).
+    - Refactor the tests to print the logs when unittest is run with option
+      ``-k``.
+    - Fix AttributeError exception upon stopping a track and closing the DLNA
+      device simultaneously (issue #66).
 
 Version 2.0
     - Implement compliant HTTP 1.1 code with the `h11`_ package. This adds

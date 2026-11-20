@@ -8,7 +8,7 @@ from configparser import ParsingError
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import BaseTestCase, requires_resources
+from . import LoggingTestCase, requires_resources
 from ..config import UserConfig
 from ..encoders import select_encoder
 
@@ -46,7 +46,7 @@ class encoders_module:
         self.SomeEncoder = encoder
 
 @requires_resources('os.devnull')
-class DefaultConfig(BaseTestCase):
+class DefaultConfig(LoggingTestCase):
     """Default configuration tests."""
 
     def test_invalid_section(self):
@@ -66,7 +66,7 @@ class DefaultConfig(BaseTestCase):
                          f"'{name}' is not a valid class name")
 
 @requires_resources(('os.devnull', 'ffmpeg'))
-class UserConfigTests(BaseTestCase):
+class UserConfigTests(LoggingTestCase):
     """User configuration tests."""
 
     def test_invalid_value(self):
@@ -336,7 +336,7 @@ class UserConfigTests(BaseTestCase):
         self.assertIn('-b:a 320k', cfg.udns[UDN].args)
 
 @requires_resources('os.devnull')
-class Encoders(BaseTestCase):
+class Encoders(LoggingTestCase):
     """Encoders tests."""
 
     def l16_mime_type(self, mime_type, rate=0, channels=0, udn=None):

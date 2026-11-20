@@ -229,7 +229,7 @@ def trim_bytes_to_string(source, size=80):
     return text[:size] + trailer
 
 async def http_request(url, headers=None, post_body=None):
-    """An HTTP 1.0 GET or POST request.
+    """An HTTP 1.1 GET or POST request.
 
     headers:    list of tuples [(header name, header value), ...]
     post_body:  bytes object

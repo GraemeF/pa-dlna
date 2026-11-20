@@ -1,25 +1,56 @@
 # syntax=docker/dockerfile:1
 #
-# Docker file to run the test suite with *pipewire*.
-# Note that these steps must be repeated after each change in pa-dlna
-# source code.
+# Docker file with python 3.13, pipewire and upmpdcli-pmd.
 #
-# Build an image, run the following command at the root of the repository:
+# Build the image:
+#
 #   $ sudo /usr/bin/docker build --file=Dockerfile.pipewire --tag=pa-dlna-pipewire .
 #
-# And start a container to run the test suite:
-#   $ sudo /usr/bin/docker run -it pa-dlna-pipewire
-# Or:
-#   $ sudo /usr/bin/docker run -p 4000:80 pa-dlna-pipewire
+# Run a container locally in the root directory of the git repository:
+#
+#   $ sudo /usr/bin/docker run --mount type=bind,src=$(pwd),dst=/root/pa-dlna pa-dlna-pipewire
 
-FROM debian:latest
+FROM debian:trixie
 
-RUN apt-get update -yq && apt-get install -yq python3-psutil procps
-RUN apt-get update -yq && apt-get install -yq curl ffmpeg
-RUN apt-get update -yq && apt-get install -yq pulseaudio-utils
-RUN apt-get update -yq && apt-get install -yq xvfb
-RUN apt-get update -yq && apt-get install -yq pipewire wireplumber pipewire-pulse
+RUN apt-get update -yq && apt-get install -yq \
+    git \
+    python3 \
+    python3-coverage
 
-COPY . /root
-WORKDIR /root
-ENTRYPOINT [ "/bin/bash", "tools/docker-pipewire.sh" ]
+RUN apt-get update -yq && apt-get install -yq \
+    pulseaudio-utils \
+    curl
+
+RUN apt-get update -yq && apt-get install -yq \
+    python3-h11 \
+    python3-psutil \
+    python3-libpulse
+
+# Install upmpdcli
+RUN mkdir -p /usr/share/keyrings
+RUN curl --output-dir /usr/share/keyrings \
+    -O https://www.lesbonscomptes.com/pages/lesbonscomptes.gpg
+RUN curl --output-dir /etc/apt/sources.list.d/ \
+    -O https://www.lesbonscomptes.com/upmpdcli/pages/upmpdcli-trixie.sources
+RUN apt-get update -yq && apt-get install -yq upmpdcli
+
+# ffmpeg and mpd use a common subset of libraries.
+RUN apt-get update -yq && apt-get install -yq --no-install-recommends ffmpeg
+RUN apt-get update -yq && apt-get install -yq --no-install-recommends mpd
+
+# Install pipewire
+RUN apt-get update -yq && apt-get install -yq \
+    pipewire \
+    wireplumber \
+    pipewire-pulse
+
+RUN apt-get update -yq && apt-get install -yq \
+    python3-systemd
+
+ENV NO_COLOR=1
+
+RUN mkdir -p /root/pa-dlna
+WORKDIR /root/pa-dlna
+
+ENTRYPOINT [ "" ]
+CMD [ "/bin/bash", "tools/docker-pipewire.sh" ]

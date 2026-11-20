@@ -491,18 +491,21 @@ class Renderer:
 
         # Another sink-input may still stream to the null-sink, such as
         # music outliving a short notification sound.
-        remaining = await self.control_point.pulse.get_sink_input(self)
-        if remaining is not None:
-            logger.info(f"Streaming '{remaining.name}' on {self.name}"
-                        f' after the end of sink-input index {index}')
-            self.nullsink.sink_input = remaining
-            self.previous_idx = None
-            # Otherwise the newer index of the ended sink-input makes the
-            # end of 'remaining' look like a switch to the next track.
-            self.last_index = remaining.index
-            return
+        if self.nullsink is not None:
+            remaining = await self.control_point.pulse.get_sink_input(self)
+            # The renderer may have closed while pulseaudio answered.
+            if remaining is not None and self.nullsink is not None:
+                logger.info(f"Streaming '{remaining.name}' on {self.name}"
+                            f' after the end of sink-input index {index}')
+                self.nullsink.sink_input = remaining
+                self.previous_idx = None
+                # Otherwise the newer index of the ended sink-input makes the
+                # end of 'remaining' look like a switch to the next track.
+                self.last_index = remaining.index
+                return
 
-        self.nullsink.sink_input = None
+        if self.nullsink is not None:
+            self.nullsink.sink_input = None
 
         # Let the HTTP 1.1 chunked transfer encoding handles the closing of
         # the stream.
@@ -711,7 +714,8 @@ class AVControlPoint(UPnPApplication):
             if self.pulse is not None:
                 await self.pulse.close()
 
-            if self.curtask != asyncio.current_task():
+            if (self.curtask is not None and
+                    self.curtask != asyncio.current_task()):
                 self.curtask.cancel(msg)
 
     def abort(self, msg):
@@ -851,6 +855,7 @@ class AVControlPoint(UPnPApplication):
         except asyncio.CancelledError as e:
             level = SYSTEMD_LOG_LEVEL if self.systemd else logging.INFO
             logger.log(level, f'Main task got: {e!r}')
+            raise
         finally:
             await self.close()
 

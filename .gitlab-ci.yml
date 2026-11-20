@@ -1,7 +1,17 @@
 # Built from template located at:
 # https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Python.gitlab-ci.yml
+#
+# Note:
+#
+#   The images 'python:3.xx' used here are based on the latest stable debian release
+#   (currently Debian 13 trixie) where Python 3.xx has been installed with
+#   'make altinstall' at /usr/local. This implies that the python packages must be
+#   installed with pip.
 
 variables:
+    PIP_BREAK_SYSTEM_PACKAGES: "1"
+    PIP_ROOT_USER_ACTION: "ignore"
+
     # Change pip's cache directory to be inside the project directory.
     PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
@@ -10,47 +20,29 @@ default:
         paths:
             - .cache/pip
 
-    before_script:
-        - apt-get update -yq && apt-get install -yq curl ffmpeg
-        - python --version
-        - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install psutil libpulse h11
+.init-script: &init-script
+    - apt-get update -yq && apt-get install -yq curl ffmpeg pulseaudio-utils libsystemd-dev
+    - useradd -m -s /bin/bash padlna
+    - /bin/find $CI_PROJECT_DIR -path $CI_PROJECT_DIR/.cache -prune -o
+      -exec chown padlna:padlna {} \;
+    - chown root:root $CI_PROJECT_DIR
+    - python -m pip install psutil libpulse h11 systemd-python
+    - su padlna -c "python --version"
 
 .pulseaudio: &pulseaudio
     - apt-get update -yq && apt-get install -yq pulseaudio
-    - pulseaudio --verbose --daemonize=yes
-
-.pipewire: &pipewire
-    - apt-get update -yq && apt-get install -yq pulseaudio-utils xvfb
-      pipewire wireplumber pipewire-pulse
-    - |
-      export 'XDG_RUNTIME_DIR=/tmp'
-      export 'DISPLAY=:0.0'
-      Xvfb -screen $DISPLAY 1920x1080x24 &
-      pipewire &
-      pipewire-pulse &
-      wireplumber &
+    - su padlna -c "pulseaudio --verbose --daemonize=yes"
+    - sleep 1
+    - su padlna -c "pactl info"
 
 .unittest-scripts: &unittest-scripts
-    - python -m unittest --verbose --failfast
-
-.coverage-scripts: &coverage-scripts
-    - PIP_BREAK_SYSTEM_PACKAGES=1 python -m pip install coverage
-    - python -m coverage run --include="./*" -m unittest
-    - python -m coverage report --show-missing
-
-pipwire-tests:
-    image: python:3.14
-    stage: test
-    script:
-        - *pipewire
-        - sleep 1
-        - pactl info
-        - *unittest-scripts
+    - su padlna -c "python -m unittest --verbose --failfast"
 
 py311:
     image: python:3.11
     stage: test
     script:
+        - *init-script
         - *pulseaudio
         - *unittest-scripts
 
@@ -58,13 +50,7 @@ py312:
     image: python:3.12
     stage: test
     script:
-        - *pulseaudio
-        - *unittest-scripts
-
-py313:
-    image: python:3.13
-    stage: test
-    script:
+        - *init-script
         - *pulseaudio
         - *unittest-scripts
 
@@ -72,7 +58,16 @@ py314:
     image: python:3.14
     stage: test
     script:
+        - *init-script
         - *pulseaudio
         - *unittest-scripts
-        - *coverage-scripts
+
+# Image based on debian:trixie including Python 3.13.
+# Running pipewire and streaming tracks on upmpdcli/mpd.
+pipewire-upmpdcli:
+    image: $CI_REGISTRY_IMAGE/pipewire-upmpdcli:latest
+    stage: test
+    script:
+        - cd $CI_PROJECT_DIR
+        - source ./tools/docker-pipewire.sh
     coverage: '/TOTAL.* (100\%|\d?\d\%)$/'

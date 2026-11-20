@@ -6,14 +6,18 @@ import asyncio
 import collections.abc
 from unittest import mock
 
-from . import skip_loop_iterations
-
 # The following values are right but only needed to have the pulseaudio module
 # import the current module as a stub.
 PA_SUBSCRIPTION_MASK_SINK_INPUT = 4
 PA_INVALID_INDEX = -1
 
 SKIP_LOOP_ITERATIONS = 30
+
+async def skip_loop_iterations(count):
+    """Skip 'count' loop iterations (cost: few msecs)."""
+
+    for i in range(count):
+        await asyncio.sleep(0)
 
 @contextlib.contextmanager
 def use_libpulse_stubs(modules):
@@ -47,7 +51,6 @@ def use_libpulse_stubs(modules):
 
     for module in modules:
         assert module not in sys.modules
-
 
 class LibPulseError(Exception): pass
 class LibPulseClosedError(LibPulseError): pass

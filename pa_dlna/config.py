@@ -180,7 +180,7 @@ class UserConfig(DefaultConfig):
     'pa-dlna.conf' file. Only the encoders selected by the user are listed.
     """
 
-    def __init__(self, systemd=False):
+    def __init__(self, use_systemd=False):
         super().__init__()
         assert self.parser is not None
         self.udns = {}
@@ -194,7 +194,7 @@ class UserConfig(DefaultConfig):
             pass
         else:
             with fileobject:
-                loglevel = SYSTEMD_LOG_LEVEL if systemd else logging.INFO
+                loglevel = SYSTEMD_LOG_LEVEL if use_systemd else logging.INFO
                 logger.log(loglevel,
                            f'Using encoders configuration at {user_config}')
                 self.parser.read_file(fileobject)

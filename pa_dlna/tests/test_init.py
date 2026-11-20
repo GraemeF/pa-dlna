@@ -20,7 +20,7 @@ from unittest import mock
 # Load the tests in the order they are declared.
 from . import load_ordered_tests as load_tests
 
-from . import requires_resources, BaseTestCase, setUpModule
+from . import requires_resources, LoggingTestCase, setUpModule
 from ..init import parse_args, padlna_main, UPnPApplication, disable_xonxoff
 from ..encoders import Encoder
 from ..config import user_config_pathname
@@ -39,30 +39,27 @@ def echo_xonxoff_array():
         sys.exit(1)
 
 @requires_resources('os.devnull')
-class Init(BaseTestCase):
+class Init(LoggingTestCase):
     def test_python_version(self):
-        import sys
-        import importlib
-        import pa_dlna
         from .. import MIN_PYTHON_VERSION
+        bad_version = (MIN_PYTHON_VERSION[0], MIN_PYTHON_VERSION[1] - 1)
 
-        version = (MIN_PYTHON_VERSION[0], MIN_PYTHON_VERSION[1] - 1)
-        try:
-            with mock.patch.object(sys, 'version_info', version),\
-                 redirect_stderr(io.StringIO()) as output,\
-                 self.assertRaises(SystemExit) as cm:
+        with (mock.patch.dict('sys.modules', sys.modules) as sys_modules,
+                mock.patch.object(sys, 'version_info', bad_version),
+                redirect_stderr(io.StringIO()) as output,
+                self.assertRaises(SystemExit) as cm):
 
-                pa_dlna = importlib.reload(pa_dlna)
+            if 'pa_dlna' in sys_modules:
+                del sys_modules['pa_dlna']
 
-            self.assertEqual(cm.exception.args[0], 1)
-            self.assertRegex(output.getvalue(),
-                             f'^error.*{MIN_PYTHON_VERSION}')
-        finally:
-            pa_dlna = importlib.reload(pa_dlna)
+            import pa_dlna
+
+        self.assertEqual(cm.exception.args[0], 1)
+        self.assertRegex(output.getvalue(), f'^error.*{MIN_PYTHON_VERSION}')
 
     @requires_resources('pty')
     def test_disable_xonxoff(self):
-        """Spawn a process to test disable_xonxoff()."""
+        # Spawn a process to test disable_xonxoff().
 
         pid, master_fd = pty.fork()
         if pid == 0:
@@ -105,8 +102,21 @@ class Init(BaseTestCase):
         self.assertRegex(cm.exception.args[0],
                     f"libpulse version '{min_version}' .* required")
 
+    def test_required_packages(self):
+        with (mock.patch.dict('sys.modules', sys.modules) as sys_modules,
+                self.assertRaises(SystemExit) as cm):
+
+            sys_modules['libpulse'] = None
+            if 'pa_dlna.init' in sys_modules:
+                del sys_modules['pa_dlna.init']
+
+            import pa_dlna.init
+
+        self.assertRegex(cm.exception.args[0],
+                          f'This package is required.*libpulse')
+
 @requires_resources('os.devnull')
-class Argv(BaseTestCase):
+class Argv(LoggingTestCase):
     """Command line tests."""
 
     def test_no_args(self):
@@ -254,7 +264,6 @@ class Argv(BaseTestCase):
     def test_failed_logfile(self):
         error_msg = 'Test cannot open logfile'
         with mock.patch('builtins.open', mock.mock_open()) as m_open,\
-                self.assertLogs(level=logging.ERROR) as m_logs,\
                 self.assertRaises(SystemExit) as cm:
             m_open.side_effect = OSError(error_msg)
             options, logfile_hdler = parse_args(
@@ -262,64 +271,92 @@ class Argv(BaseTestCase):
 
         self.assertEqual(cm.exception.args[0], 2)
         m_open.assert_called_once()
-        self.assertRegex(m_logs.output[-1], f'OSError.*{error_msg}')
+        self.assertRegex(self.logging_output[-1], f'OSError.*{error_msg}')
+
+    @requires_resources('systemd.journal')
+    def test_systemd_option(self):
+        from systemd import journal
+
+        root = logging.getLogger()
+        try:
+            options, _ = parse_args(self.__doc__, argv=['--systemd'])
+            self.assertTrue(any(isinstance(hdler, journal.JournalHandler) for
+                                hdler in root.handlers))
+        finally:
+            for hdler in root.handlers:
+                if isinstance(hdler, journal.JournalHandler):
+                    root.removeHandler(hdler)
 
 @requires_resources('os.devnull')
-class Main(BaseTestCase):
+class Main(LoggingTestCase):
     """padlna_main() tests."""
 
     def test_main(self):
         clazz = mock.MagicMock()
         coro = mock.AsyncMock()
-        exit_code = 'foo'
 
         clazz.__name__ = 'AVControlPoint'
         app = clazz()
         app.run_control_point = coro
-        coro.return_value = exit_code
+        coro.side_effect = Exception('foo')
 
-        with mock.patch('pa_dlna.init.UserConfig') as cfg,\
-                self.assertLogs() as logs,\
+        with mock.patch('pa_dlna.init.UserConfig') as cfg, \
                 self.assertRaises(SystemExit) as cm:
             padlna_main(clazz, self.__doc__, argv=['pa-dlna'])
 
-        self.assertEqual(cm.exception.args[0], exit_code)
+        self.assertEqual(cm.exception.args[0], '*** error: foo')
         cfg.assert_called_once()
-        self.assertEqual(f'INFO:init:End of {app}', logs.output[-1])
+        self.assertEqual(f'INFO:init:End of {app}', self.logging_output[-1])
         app.run_control_point.assert_called_once()
         coro.assert_awaited()
+
+    def test_missing_systemd_module(self):
+        clazz = mock.MagicMock()
+        clazz.__name__ = 'AVControlPoint'
+        app = clazz()
+
+        with (mock.patch.dict('sys.modules', sys.modules) as sys_modules,
+                self.assertRaises(SystemExit) as cm):
+
+            if 'pa_dlna.init' in sys_modules:
+                del sys_modules['pa_dlna.init']
+
+            sys_modules['systemd'] = None
+            from ..init import padlna_main as _padlna_main
+            _padlna_main(clazz, self.__doc__, argv=['pa-dlna', '--systemd'])
+
+        self.assertTrue(cm.exception.args[0].startswith(
+                                    "*** error: Cannot import 'systemd'"))
+        self.assertEqual(f'INFO:init:End of {app}', self.logging_output[-1])
 
     def test_PermissionError(self):
         clazz = mock.MagicMock()
         clazz.__name__ = 'AVControlPoint'
 
-        with self.assertLogs() as logs,\
-                mock.patch('builtins.open', mock.mock_open()) as m_open,\
+        with mock.patch('builtins.open', mock.mock_open()) as m_open,\
                 self.assertRaises(SystemExit) as cm:
             m_open.side_effect = PermissionError()
             padlna_main(clazz, self.__doc__, argv=['pa-dlna'])
 
         self.assertEqual(cm.exception.args[0], 1)
-        self.assertEqual(logs.output[-1], 'ERROR:init:PermissionError()')
+        self.assertEqual(self.logging_output[-1], 'ERROR:init:PermissionError()')
 
     def test_upnp_cmd(self):
         clazz = mock.MagicMock()
         coro = mock.AsyncMock()
-        exit_code = 'foo'
 
         clazz.__name__ = 'UPnPControlCmd'
         app = clazz()
         app.run_control_point = coro
-        app.run.return_value = exit_code
 
-        with self.assertLogs() as logs,\
+        with mock.patch.object(app, 'run') as app_run, \
                 self.assertRaises(SystemExit) as cm:
+            app_run.side_effect = Exception('foo')
             padlna_main(clazz, self.__doc__, argv=['upnp-cmd'])
 
-        self.assertEqual(cm.exception.args[0], exit_code)
-        self.assertEqual(f'INFO:init:End of {app}', logs.output[-1])
-        app.run_control_point.assert_called_once()
-        app.run.assert_called_once()
+        self.assertEqual(cm.exception.args[0], '*** error: foo')
+        self.assertEqual(f'INFO:init:End of {app}', self.logging_output[-1])
+        app_run.assert_called_once()
 
     def test_upnpapplication(self):
         app = UPnPApplication(logfile='foo')

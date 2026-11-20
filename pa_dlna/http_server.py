@@ -24,21 +24,22 @@ TIMEOUT = 10
 SERVER_HEADER = h11.PRODUCT_ID.encode('ascii')
 
 async def kill_process(process):
-    try:
+    async def process_wait():
         try:
-            # First try with SIGTERM.
-            process.terminate()
             await asyncio.wait_for(process.wait(), timeout=1.0)
+            return True
         except TimeoutError:
             pass
-        finally:
-            # Kill the process if the process is still alive.
-            # And close transports of stdin, stdout, and stderr pipes,
-            # otherwise we would get an exception on exit triggered by garbage
-            # collection (a Python bug ?):
-            # Exception ignored in: <function BaseSubprocessTransport.__del__:
-            #   RuntimeError: Event loop is closed
-            process._transport.close()
+
+    try:
+        if process.returncode is not None:
+            await process_wait()
+        else:
+            # First try with SIGTERM.
+            process.terminate()
+            if not await process_wait():
+                process.kill()
+                await process_wait()
     except ProcessLookupError as e:
         logger.debug(f"Ignoring exception: '{e!r}'")
 
@@ -114,8 +115,6 @@ class Track:
 
             if data:
                 h11_state = self.h11_wrapper.conn.our_state
-                assert h11_state is h11.SEND_BODY, \
-                    f'Expecting SEND_BODY but our state is {h11_state}'
                 await self.h11_wrapper.send(h11.Data(data=data))
 
             if not data or partial_data:
@@ -213,6 +212,7 @@ class StreamProcesses:
 
         except Exception as e:
             log_exception(logger, f'{e!r}')
+            raise
 
     async def get_stream_reader(self):
         """Get the stdout pipe of the last process."""
@@ -346,6 +346,7 @@ class StreamProcesses:
         except Exception as e:
             log_exception(logger, f'{e!r}')
             await self.close(disable=True)
+            raise
 
 class StreamSessions:
     """Handle multiple tracks.
@@ -385,11 +386,13 @@ class StreamSessions:
             await self.processes.close_encoder()
 
     async def close_session(self):
-        self.track_count = 0
-        await self.stop_track()
-        if self.processes is not None:
-            await self.processes.close()
-            self.processes = None
+        try:
+            await self.stop_track()
+            if self.processes is not None:
+                await self.processes.close()
+                self.processes = None
+        finally:
+            self.track_count = 0
 
     async def start_track(self, h11_wrapper):
         self.is_playing = True
@@ -430,9 +433,15 @@ class H11Wrapper:
         try:
             self.writer.write(data)
             await self.writer.drain()
-        except (ConnectionError, asyncio.CancelledError):
+        except (ConnectionError, asyncio.CancelledError) as e:
             # We have no choice but to give it up.
             self.conn.send_failed()
+            if isinstance(e, ConnectionError):
+                logger.error(f'H11Wrapper.send(): {e!r}\n'
+                             f'        our_state: {self.conn.our_state} - '
+                             f'writer.is_closing: {self.writer.is_closing()}')
+            else:
+                logger.debug(f'H11Wrapper.send() got CancelledError')
             raise
 
     async def _read_from_peer(self):
@@ -597,9 +606,9 @@ class HTTPServer:
         h11_wrapper = H11Wrapper(reader, writer)
         self.h11_wrapper = h11_wrapper
         h11_wrapper.info('Got new connection')
-        assert h11_wrapper.conn.states == {h11.CLIENT: h11.IDLE, h11.SERVER: h11.IDLE}
+        assert h11_wrapper.conn.states == {h11.CLIENT: h11.IDLE,
+                                           h11.SERVER: h11.IDLE}
 
-        do_close = True
         try:
             self.h11_wrapper.info('Server main loop waiting for request')
             event = await asyncio.wait_for(h11_wrapper.next_event(), TIMEOUT)
@@ -608,6 +617,7 @@ class HTTPServer:
             if (type(event) is not h11.Request or
                     event.method not in (b'GET', b'HEAD')):
                 await self.send_error_response(HTTPStatus.BAD_REQUEST)
+                await h11_wrapper.shutdown_and_clean_up()
                 return
 
             renderer = await self.match_renderer(event)
@@ -615,26 +625,28 @@ class HTTPServer:
                 # Ok, handle the request.
                 await self.send_http_ok(renderer)
                 await renderer.stream_sessions.start_track(h11_wrapper)
-                do_close = False
-                return
-
-        except Exception as exc:
-            h11_wrapper.info(f'Error during response handler: {exc!r}')
-            if isinstance(exc, h11.RemoteProtocolError):
-                status_code = exc.error_status_hint
             else:
-                status_code = 500
-            await self.send_error_response(status_code, str(exc))
-        finally:
-            if do_close:
                 await h11_wrapper.shutdown_and_clean_up()
+
+        except Exception as e:
+            logger.error(f'HTTPServer.client_connected(): {e!r}')
+            if not isinstance(e, ConnectionError):
+                try:
+                    if isinstance(e, h11.RemoteProtocolError):
+                        status_code = e.error_status_hint
+                    else:
+                        status_code = 500
+                    await self.send_error_response(status_code, str(e))
+                finally:
+                    await h11_wrapper.shutdown_and_clean_up()
+            raise
 
     @log_unhandled_exception(logger)
     async def run(self):
         task_name = asyncio.current_task().get_name()
         try:
             aio_server = await asyncio.start_server(self.client_connected,
-                                                    self.ip_address, self.port)
+                                                self.ip_address, self.port)
             addrs = ', '.join(str(sock.getsockname())
                               for sock in aio_server.sockets)
             logger.info(f'{task_name} serve HTTP requests on {addrs}')
